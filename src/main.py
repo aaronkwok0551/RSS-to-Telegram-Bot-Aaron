@@ -35,6 +35,37 @@ def send_message(text):
     except Exception as e:
         print(f"發送訊息錯誤: {e}")
 
+# 控制啟動狀態
+active = True
+last_update_id = None
+
+def handle_command(text):
+    global active
+    if text == "/pause":
+        active = False
+        send_message("已暫停自動推送")
+    elif text == "/start":
+        active = True
+        send_message("已重新啟動自動推送")
+
+# 檢查是否有新的控制指令
+def check_command():
+    global last_update_id
+    url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/getUpdates"
+    try:
+        resp = requests.get(url).json()
+        for result in resp.get("result", []):
+            update_id = result["update_id"]
+            if last_update_id is not None and update_id <= last_update_id:
+                continue
+            message = result.get("message", {})
+            if str(message.get("chat", {}).get("id")) == os.environ['CHAT_ID']:
+                text = message.get("text", "")
+                handle_command(text)
+                last_update_id = update_id
+    except Exception as e:
+        print(f"檢查控制指令錯誤: {e}")
+# send new news
 def fetch_and_send():
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     print(f"檢查時間：{now.strftime('%H:%M')}")
