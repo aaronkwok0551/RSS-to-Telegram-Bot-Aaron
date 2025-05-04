@@ -94,6 +94,8 @@ def noon_check():
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15)):
-        noon_check()
-        fetch_and_send()
+        check_command()
+        check_alive()
+        if active:
+            fetch_and_send()
     time.sleep(60)
