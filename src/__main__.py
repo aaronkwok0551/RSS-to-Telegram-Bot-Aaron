@@ -1,6 +1,3 @@
-
-
-```python
 import os
 import time
 import json
@@ -9,11 +6,11 @@ import feedparser
 from datetime import datetime
 import pytz
 
-# Telegram Bot Token 和 Chat ID 從環境變數讀取
+#Telegram Bot Token 和 Chat ID 從環境變數讀取
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# RSS 來源列表
+#RSS來源列表
 RSS_URLS = [
   'https://www.info.gov.hk/gia/rss/general_zh.xml',
   'https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml'
