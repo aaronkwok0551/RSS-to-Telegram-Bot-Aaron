@@ -1,8 +1,4 @@
-- **設定運行時間：** 每天香港時間 08:30 至 00:15 運行 [oai_citation_attribution:0‡GitHub](https://github.com/Rongronggg9/RSS-to-Telegram-Bot?utm_source=chatgpt.com)
 
----
-
-## 📄 `main.py` 程式碼
 
 ```python
 import os
