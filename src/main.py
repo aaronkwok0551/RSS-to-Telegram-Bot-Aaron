@@ -72,27 +72,37 @@ def fetch_and_send():
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     print("檢查時間：", now.strftime("%H:%M"))
 
+    gov_news = []
+    rthk_news = []
+
     for rss in RSS_URLS:
         feed = feedparser.parse(rss)
         for entry in feed.entries:
             title = entry.title
             link = entry.link
-
             if title not in SENT_TITLES:
-                # 根據 RSS 來源加標籤
                 if "info.gov.hk" in rss:
-                    prefix = "[新聞稿] "
-                    link += "\nhttps://www.isdnews.gov.hk/subscriber/loginpage"
+                    gov_news.append(f"{title}\n{link}")
                 elif "rthk.hk" in rss:
-                    prefix = "[香港電台新聞] "
-                else:
-                    prefix = ""
-
-                msg = f"{prefix}{title}\n{link}"
-                send_message(msg)
+                    rthk_news.append(f"{title}\n{link}")
                 SENT_TITLES.add(title)
 
     save_sent_titles()
+
+    # 發送政府新聞摘要
+    if gov_news:
+        summary = "【新聞稿】\n"
+        for idx, item in enumerate(gov_news, 1):
+            summary += f"{idx}. {item}\n"
+        summary += "\n更多詳情：https://www.isdnews.gov.hk/subscriber/loginpage"
+        send_message(summary)
+
+    # 發送 RTHK 新聞摘要
+    if rthk_news:
+        summary = "【香港電台新聞】\n"
+        for idx, item in enumerate(rthk_news, 1):
+            summary += f"{idx}. {item}\n"
+        send_message(summary)
 
 # 每日中午發送 I'm alive 訊息
 def check_alive():
