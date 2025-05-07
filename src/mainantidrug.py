@@ -53,8 +53,9 @@ def fetch_and_send():
         if len(messages) >= 10:
             break
 
-    if messages:
-        send_message("【禁毒／海關新聞】" + "\n" + "\n".join(messages))
+if messages:
+    send_message("【禁毒／海關新聞】\n" + "\n".join(messages))
+    save_sent_titles()
 
 " + "
 
