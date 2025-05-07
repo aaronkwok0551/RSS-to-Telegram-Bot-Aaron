@@ -54,7 +54,7 @@ def fetch_and_send():
             break
 
     if messages:
-        send_message("【禁毒 / 海關新聞】
+        send_message("【禁毒／海關新聞】" + "\n" + "\n".join(messages))
 
 " + "
 
