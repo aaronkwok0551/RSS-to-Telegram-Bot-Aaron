@@ -29,7 +29,7 @@ def send_message(text):
     url = "https://api.telegram.org/bot" + os.environ["BOT_TOKEN"] + "/sendMessage"
     payload = {
         "chat_id": os.environ["CHAT_ID"],
-        "text": text
+        "text": text,
         "disable_web_page_preview": True
     }
     try:
