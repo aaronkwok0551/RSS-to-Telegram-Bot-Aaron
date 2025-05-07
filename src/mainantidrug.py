@@ -58,7 +58,7 @@ def fetch_and_send():
 
 " + "
 
-".join(messages))
+send_message("【禁毒／海關新聞】\n" + "\n".join(messages))
         save_sent_titles()
 
 # 主程序
