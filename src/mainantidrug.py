@@ -3,18 +3,22 @@ import feedparser
 import json
 import time
 import os
+import re
 from datetime import datetime
 import pytz
 import requests
 
 ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關+when:1d"
-
 SENT_TITLES_FILE = "sent_titles_antidrug.json"
+
 try:
     with open(SENT_TITLES_FILE, "r", encoding="utf-8") as f:
         SENT_TITLES = set(json.load(f))
 except (FileNotFoundError, json.JSONDecodeError):
     SENT_TITLES = set()
+
+def escape_md(text):
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
 def save_sent_titles():
     with open(SENT_TITLES_FILE, "w", encoding="utf-8") as f:
@@ -25,7 +29,7 @@ def send_message(text):
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": True
     }
     try:
@@ -40,10 +44,10 @@ def fetch_and_send():
 
     messages = []
     for entry in entries:
-        title = entry.title.strip().replace("[", "").replace("]", "").replace("(", "").replace(")", "")
-        link = entry.link.strip().replace(")", "")
+        title = escape_md(entry.title.strip())
+        link = entry.link.strip()
         if title not in SENT_TITLES:
-            messages.append(f"{len(messages)+1}. [{title}]({link})")
+            messages.append(f"{len(messages)+1}\. [{title}]({link})")
             SENT_TITLES.add(title)
         if len(messages) >= 10:
             break
