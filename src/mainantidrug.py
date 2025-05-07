@@ -1,3 +1,4 @@
+
 import feedparser
 import json
 import time
@@ -6,9 +7,9 @@ from datetime import datetime
 import pytz
 import requests
 
-ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
-SENT_TITLES_FILE = "sent_titles_antidrug.json"
+ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關+when:1d"
 
+SENT_TITLES_FILE = "sent_titles_antidrug.json"
 try:
     with open(SENT_TITLES_FILE, "r", encoding="utf-8") as f:
         SENT_TITLES = set(json.load(f))
@@ -24,6 +25,7 @@ def send_message(text):
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text,
+        "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
     try:
@@ -38,22 +40,21 @@ def fetch_and_send():
 
     messages = []
     for entry in entries:
-        title = entry.title.strip()
-        link = entry.link.strip()
+        title = entry.title.strip().replace("[", "").replace("]", "").replace("(", "").replace(")", "")
+        link = entry.link.strip().replace(")", "")
         if title not in SENT_TITLES:
-            messages.append(f"{len(messages)+1}. {title}\n{link}")
+            messages.append(f"{len(messages)+1}. [{title}]({link})")
             SENT_TITLES.add(title)
         if len(messages) >= 10:
             break
 
     if messages:
-        send_message("【禁毒／海關新聞】\n" + "\n\n".join(messages))
+        send_message("【禁毒／海關新聞】\n" + "\n".join(messages))
         save_sent_titles()
 
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     print("檢查時間：", hk_time.strftime("%H:%M"))
-
     if 8 <= hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15):
         fetch_and_send()
     time.sleep(60)
