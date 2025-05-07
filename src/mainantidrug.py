@@ -52,6 +52,8 @@ def fetch_and_send():
 
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+    print("檢查時間：", hk_time.strftime("%H:%M"))
+
     if 8 <= hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15):
         fetch_and_send()
     time.sleep(60)
