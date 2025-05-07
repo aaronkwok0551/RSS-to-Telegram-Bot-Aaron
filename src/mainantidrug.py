@@ -1,40 +1,28 @@
+
 import os
-import json
 import time
-import requests
+import json
 import feedparser
-from datetime import datetime, timedelta
-from time import mktime
+from datetime import datetime
 import pytz
+import requests
 
-# Google News RSS 搜尋
-RSS_URLS = [
-    "https://news.google.com/rss/search?q=毒品+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant",
-    "https://news.google.com/rss/search?q=太空油+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant",
-    "https://news.google.com/rss/search?q=依託咪酯+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant",
-    "https://news.google.com/rss/search?q=海關+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
-]
+# RSS 來源（Google News 關鍵詞搜尋）
+GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search?q=%E6%AF%92%E5%93%81+OR+%E4%BE%9D%E8%A8%97%E5%92%AA%E9%85%8F+OR+%E5%A4%AA%E7%A9%BA%E6%B2%B9+OR+%E6%B5%B7%E9%97%9C&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
 
-KEYWORDS = ["毒品", "依託咪酯", "太空油", "海關"]
-SENT_TITLES_FILE = 'sent_titles.json'
-
-# 狀態控制
-active = True
-last_alive_hour = None
-last_update_id = None
-
-# 載入已傳送過的標題
+# 儲存已發送標題
+SENT_TITLES_FILE = 'sent_titles_antidrug.json'
 try:
     with open(SENT_TITLES_FILE, 'r', encoding='utf-8') as f:
         SENT_TITLES = set(json.load(f))
-except:
+except (FileNotFoundError, json.JSONDecodeError):
     SENT_TITLES = set()
 
 def save_sent_titles():
     with open(SENT_TITLES_FILE, 'w', encoding='utf-8') as f:
         json.dump(list(SENT_TITLES), f, ensure_ascii=False)
 
-# 傳送 Telegram 訊息
+# 發送訊息
 def send_message(text):
     url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage"
     payload = {
@@ -44,82 +32,40 @@ def send_message(text):
     }
     try:
         requests.post(url, data=payload)
-    except:
-        print("無法發送訊息")
+    except requests.exceptions.RequestException as e:
+        print(f"發送錯誤: {e}")
 
-# 檢查指令
-def check_command():
-    global active, last_update_id
-    url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/getUpdates"
-    try:
-        res = requests.get(url).json()
-        if not res["ok"]:
-            return
-        for update in res["result"]:
-            update_id = update["update_id"]
-            if last_update_id is not None and update_id <= last_update_id:
-                continue
-            if "message" in update and str(update["message"]["chat"]["id"]) == os.environ["CHAT_ID"]:
-                text = update["message"].get("text", "")
-                if text == "/pause":
-                    active = False
-                    send_message("已暫停自動推送")
-                elif text == "/start":
-                    active = True
-                    send_message("已重新啟動自動推送")
-                elif text == "/status":
-                    state = "啟動中" if active else "已暫停"
-                    send_message(f"目前狀態：{state}")
-            last_update_id = update_id
-    except:
-        print("檢查控制指令失敗")
-
-# 報平安
-def check_alive():
-    global last_alive_hour
-    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    if now.hour == 12 and last_alive_hour != 12:
-        send_message("我還活著，請放心！")
-        last_alive_hour = 12
-    elif now.hour != 12:
-        last_alive_hour = None
-
-# 搜尋新聞
+# 抓取並發送最新新聞
 def fetch_and_send():
-    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    feed = feedparser.parse("https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關&hl=zh-HK&gl=HK&ceid=HK:zh-Hant")
-    
-    entries = sorted(feed.entries, key=lambda x: x.published_parsed, reverse=True)
-    new_items = []
-    
+    feed = feedparser.parse(GOOGLE_NEWS_RSS_URL)
+
+    # 過濾有發佈時間的新聞並依時間排序
+    entries = [e for e in feed.entries if hasattr(e, "published_parsed")]
+    entries.sort(key=lambda x: x.published_parsed, reverse=True)
+
+    messages = []
     for entry in entries:
         title = entry.title.strip()
         link = entry.link.strip()
         if title not in SENT_TITLES:
-            new_items.append(f"{len(new_items)+1}. {title}\n{link}")
+            messages.append(f"{len(messages)+1}. {title}
+{link}")
             SENT_TITLES.add(title)
-        if len(new_items) >= 10:
+        if len(messages) >= 10:
             break
 
-    if new_items:
-        message = "【禁毒/海關新聞】\n" + "\n\n".join(new_items)
-        send_message(message)
-        save_sent_titles()
-    entries.sort(key=lambda x: x["time"], reverse=True)
-    if entries:
-        message = "【禁毒/海關新聞】\n"
-        for i, item in enumerate(entries, 1):
-            message += f"{i}. {item['title']}\n{item['link']}\n"
-        send_message(message)
+    if messages:
+        send_message("【禁毒 / 海關新聞】
 
-# 主循環
-while True:
-    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    if 8 <= now.hour < 24 or (now.hour == 0 and now.minute <= 15):
-        check_command()
-        check_alive()
-        if active:
+" + "
+
+".join(messages))
+        save_sent_titles()
+
+# 主程序
+if __name__ == "__main__":
+    while True:
+        hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+        if 8 <= hk_time.hour < 24:
             fetch_and_send()
-    else:
-        print("不在指定運作時段")
-    time.sleep(60)
+        time.sleep(60)
