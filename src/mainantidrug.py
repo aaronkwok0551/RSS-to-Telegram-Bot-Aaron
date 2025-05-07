@@ -1,26 +1,26 @@
-import os
-import time
-import json
 import feedparser
-import requests
-import pytz
+import json
+import time
+import os
 from datetime import datetime
+import pytz
+import requests
 
-GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
+ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
+SENT_TITLES_FILE = "sent_titles_antidrug.json"
 
-SENT_TITLES_FILE = 'sent_titles.json'
 try:
-    with open(SENT_TITLES_FILE, 'r', encoding='utf-8') as f:
+    with open(SENT_TITLES_FILE, "r", encoding="utf-8") as f:
         SENT_TITLES = set(json.load(f))
 except (FileNotFoundError, json.JSONDecodeError):
     SENT_TITLES = set()
 
 def save_sent_titles():
-    with open(SENT_TITLES_FILE, 'w', encoding='utf-8') as f:
+    with open(SENT_TITLES_FILE, "w", encoding="utf-8") as f:
         json.dump(list(SENT_TITLES), f, ensure_ascii=False, indent=2)
 
 def send_message(text):
-    url = "https://api.telegram.org/bot" + os.environ["BOT_TOKEN"] + "/sendMessage"
+    url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage"
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text,
@@ -32,9 +32,7 @@ def send_message(text):
         print(f"發送訊息錯誤: {e}")
 
 def fetch_and_send():
-    feed = feedparser.parse(GOOGLE_NEWS_RSS_URL)
-
-    # 過濾有發佈時間的新聞並依時間排序
+    feed = feedparser.parse(ANTIDRUG_NEWS_RSS_URL)
     entries = [e for e in feed.entries if hasattr(e, "published_parsed")]
     entries.sort(key=lambda x: x.published_parsed, reverse=True)
 
@@ -45,8 +43,8 @@ def fetch_and_send():
         if title not in SENT_TITLES:
             messages.append(f"{len(messages)+1}. {title}\n{link}")
             SENT_TITLES.add(title)
-            if len(messages) >= 10:
-                break
+        if len(messages) >= 10:
+            break
 
     if messages:
         send_message("【禁毒／海關新聞】\n" + "\n\n".join(messages))
