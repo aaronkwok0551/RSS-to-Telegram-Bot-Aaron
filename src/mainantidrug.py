@@ -48,8 +48,7 @@ def fetch_and_send():
         title = entry.title.strip()
         link = entry.link.strip()
         if title not in SENT_TITLES:
-            messages.append(f"{len(messages)+1}. {title}
-{link}")
+            messages.append(f"{len(messages)+1}. {title}\n{link}")
             SENT_TITLES.add(title)
         if len(messages) >= 10:
             break
