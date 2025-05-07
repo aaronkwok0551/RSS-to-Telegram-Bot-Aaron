@@ -30,6 +30,7 @@ def send_message(text):
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text
+        "disable_web_page_preview": True
     }
     try:
         requests.post(url, data=payload)
