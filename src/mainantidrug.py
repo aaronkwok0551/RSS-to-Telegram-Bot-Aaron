@@ -86,27 +86,25 @@ def check_alive():
 
 # 搜尋新聞
 def fetch_and_send():
-    print("執行檢查...")
-    entries = []
-    for rss in RSS_URLS:
-        feed = feedparser.parse(rss)
-        for entry in feed.entries:
-            title = entry.title
-            link = entry.link
-            pub = entry.published_parsed if 'published_parsed' in entry else None
-            if not pub:
-                continue
-            published_dt = datetime.fromtimestamp(mktime(pub))
-            if datetime.now() - published_dt > timedelta(days=1):
-                continue
-            if title not in SENT_TITLES and any(k in title for k in KEYWORDS):
-                entries.append({
-                    "title": title,
-                    "link": link,
-                    "time": published_dt
-                })
-                SENT_TITLES.add(title)
-    save_sent_titles()
+    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+    feed = feedparser.parse("https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關&hl=zh-HK&gl=HK&ceid=HK:zh-Hant")
+    
+    entries = sorted(feed.entries, key=lambda x: x.published_parsed, reverse=True)
+    new_items = []
+    
+    for entry in entries:
+        title = entry.title.strip()
+        link = entry.link.strip()
+        if title not in SENT_TITLES:
+            new_items.append(f"{len(new_items)+1}. {title}\n{link}")
+            SENT_TITLES.add(title)
+        if len(new_items) >= 10:
+            break
+
+    if new_items:
+        message = "【禁毒/海關新聞】\n" + "\n\n".join(new_items)
+        send_message(message)
+        save_sent_titles()
     entries.sort(key=lambda x: x["time"], reverse=True)
     if entries:
         message = "【禁毒/海關新聞】\n"
