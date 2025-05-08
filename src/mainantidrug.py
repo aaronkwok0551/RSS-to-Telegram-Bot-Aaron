@@ -49,7 +49,7 @@ def fetch_and_send():
         if title not in SENT_TITLES:
             messages.append(f"{len(messages)+1}\. [{title}]({link})")
             SENT_TITLES.add(title)
-        if len(messages) >= 10:
+        if len(messages) >= 30:
             break
 
     if messages:
