@@ -1,4 +1,3 @@
-
 import feedparser
 import json
 import time
@@ -48,11 +47,17 @@ def fetch_and_send():
         print(f"【{name}】 抓到 {len(feed.entries)} 條")
         items = []
         for entry in feed.entries:
+            if not hasattr(entry, "published_parsed"):
+                print(f"略過（沒有發佈時間）: {entry.title}")
+                continue
+
             title = escape_md(entry.title.strip())
             link = entry.link.strip()
             if link not in SENT_LINKS:
                 items.append(f"{len(items)+1}\. [{title}]({link})")
                 SENT_LINKS.add(link)
+            else:
+                print(f"略過（已發送）: {title}")
         if items:
             if "info.gov.hk" in url:
                 message = ISD_LINK + "\n" + f"【{escape_md(name)}】\n" + "\n".join(items)
