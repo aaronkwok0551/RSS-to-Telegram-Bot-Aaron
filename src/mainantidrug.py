@@ -8,7 +8,7 @@ from datetime import datetime
 import pytz
 import requests
 
-ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+依託咪酯+OR+太空油+OR+海關+when:1d"
+ANTIDRUG_NEWS_RSS_URL = "https://news.google.com/rss/search?q=毒品+OR+緝毒+OR+太空油+OR+依託咪酯+OR+禁毒+OR+毒品案+OR+海關+when:1d&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
 SENT_TITLES_FILE = "sent_titles_antidrug.json"
 
 try:
