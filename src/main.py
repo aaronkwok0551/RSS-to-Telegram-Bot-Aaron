@@ -1,35 +1,39 @@
-import os
+
+import feedparser
 import json
 import time
-import requests
-import feedparser
+import os
+import re
 from datetime import datetime
 import pytz
+import requests
 
-# RSS 來源列表
 RSS_URLS = [
-    "https://www.info.gov.hk/gia/rss/general_zh.xml",
-    "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"
+    ('政府新聞稿', 'https://www.info.gov.hk/gia/rss/general_zh.xml'),
+    ('香港電台新聞', 'https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml')
 ]
 
-# 儲存已發送標題避免重複
-SENT_TITLES_FILE = 'sent_titles.json'
+SENT_TITLES_FILE = "sent_titles_rthk_info.json"
+
 try:
-    with open(SENT_TITLES_FILE, 'r', encoding='utf-8') as f:
+    with open(SENT_TITLES_FILE, "r", encoding="utf-8") as f:
         SENT_TITLES = set(json.load(f))
 except (FileNotFoundError, json.JSONDecodeError):
     SENT_TITLES = set()
 
 def save_sent_titles():
-    with open(SENT_TITLES_FILE, 'w', encoding='utf-8') as f:
-        json.dump(list(SENT_TITLES), f, ensure_ascii=False)
+    with open(SENT_TITLES_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(SENT_TITLES), f, ensure_ascii=False, indent=2)
 
-# 發送訊息
+def escape_md(text):
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+
 def send_message(text):
-    url = "https://api.telegram.org/bot" + os.environ["BOT_TOKEN"] + "/sendMessage"
+    url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage"
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text,
+        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": True
     }
     try:
@@ -37,86 +41,30 @@ def send_message(text):
     except requests.exceptions.RequestException as e:
         print(f"發送訊息錯誤: {e}")
 
-# 控制啟動狀態
-active = True
-last_update_id = None
-
-def handle_command(text):
-    global active
-    if text == "/pause":
-        active = False
-        send_message("已暫停自動推送")
-    elif text == "/start":
-        active = True
-        send_message("已重新啟動自動推送")
-
-# 檢查是否有新的控制指令
-def check_command():
-    global last_update_id
-    url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/getUpdates"
-    try:
-        resp = requests.get(url).json()
-        for result in resp.get("result", []):
-            update_id = result["update_id"]
-            if last_update_id is not None and update_id <= last_update_id:
-                continue
-            message = result.get("message", {})
-            if str(message.get("chat", {}).get("id")) == os.environ['CHAT_ID']:
-                text = message.get("text", "")
-                handle_command(text)
-                last_update_id = update_id
-    except Exception as e:
-        print(f"檢查控制指令錯誤: {e}")
-
-# 傳送新的新聞
 def fetch_and_send():
-    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    print("檢查時間：", now.strftime("%H:%M"))
-
-    gov_news = []
-    rthk_news = []
-
-    for rss in RSS_URLS:
-        feed = feedparser.parse(rss)
+    for name, url in RSS_URLS:
+        feed = feedparser.parse(url)
+        items = []
         for entry in feed.entries:
-            title = entry.title
-            link = entry.link
+            title = escape_md(entry.title.strip())
+            link = entry.link.strip()
             if title not in SENT_TITLES:
-                if "info.gov.hk" in rss:
-                    gov_news.append(f"{title}\n{link}")
-                elif "rthk.hk" in rss:
-                    rthk_news.append(f"{title}\n{link}")
+                items.append(f"{len(items)+1}\. [{title}]({link})")
                 SENT_TITLES.add(title)
-
+        if items:
+            message = f"【{escape_md(name)}】\n" + "\n".join(items)
+            send_message(message)
     save_sent_titles()
 
-    # 發送政府新聞摘要
-    if gov_news:
-        summary = "【新聞稿】\n"
-        for idx, item in enumerate(gov_news, 1):
-            summary += f"{idx}. {item}\n"
-        summary += "\n更多詳情：https://www.isdnews.gov.hk/subscriber/loginpage"
-        send_message(summary)
-
-    # 發送 RTHK 新聞摘要
-    if rthk_news:
-        summary = "【香港電台新聞】\n"
-        for idx, item in enumerate(rthk_news, 1):
-            summary += f"{idx}. {item}\n"
-        send_message(summary)
-
-# 每日中午發送 I'm alive 訊息
-def check_alive():
+def send_alive_message():
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    if now.strftime("%H:%M") == "12:00":
-        send_message("我還活著，請放心！")
+    if now.hour == 12 and now.minute == 0:
+        send_message("我還活著，請放心\！")
 
-# 主循環
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+    print("檢查時間：", hk_time.strftime("%H:%M"))
     if 8 <= hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15):
-        check_command()
-        check_alive()
-        if active:
-            fetch_and_send()
+        fetch_and_send()
+        send_alive_message()
     time.sleep(60)
