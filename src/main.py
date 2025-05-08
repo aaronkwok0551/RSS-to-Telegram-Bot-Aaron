@@ -1,3 +1,4 @@
+
 import feedparser
 import json
 import time
@@ -28,14 +29,15 @@ def save_sent_links():
 def escape_md(text):
     return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
 
-def send_message(text):
+def send_message(text, markdown=True):
     url = f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage"
     payload = {
         "chat_id": os.environ["CHAT_ID"],
         "text": text,
-        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": True
     }
+    if markdown:
+        payload["parse_mode"] = "MarkdownV2"
     try:
         requests.post(url, data=payload)
     except requests.exceptions.RequestException as e:
@@ -45,25 +47,31 @@ def fetch_and_send():
     for name, url in RSS_URLS:
         feed = feedparser.parse(url)
         print(f"【{name}】 抓到 {len(feed.entries)} 條")
-        items = []
-        for entry in feed.entries:
-            if not hasattr(entry, "published_parsed"):
-                print(f"略過（沒有發佈時間）: {entry.title}")
-                continue
+        entries = [e for e in feed.entries if hasattr(e, "published_parsed")]
+        entries.sort(key=lambda x: x.published_parsed, reverse=True)
 
-            title = escape_md(entry.title.strip())
+        items = []
+        for entry in entries:
+            title = entry.title.strip()
             link = entry.link.strip()
             if link not in SENT_LINKS:
-                items.append(f"{len(items)+1}\. [{title}]({link})")
+                items.append((title, link))
                 SENT_LINKS.add(link)
             else:
                 print(f"略過（已發送）: {title}")
+
         if items:
             if "info.gov.hk" in url:
-                message = ISD_LINK + "\n" + f"【{escape_md(name)}】\n" + "\n".join(items)
+                # 純文字格式，含 ISD 登入頁
+                body = "\n".join([f"{i+1}. {t}\n{l}" for i, (t, l) in enumerate(items)])
+                message = ISD_LINK + "\n【政府新聞稿】\n" + body
+                send_message(message, markdown=False)
             else:
-                message = f"【{escape_md(name)}】\n" + "\n".join(items)
-            send_message(message)
+                # MarkdownV2 格式
+                body = "\n".join([f"{i+1}\. [{escape_md(t)}]({l})" for i, (t, l) in enumerate(items)])
+                message = f"【{escape_md(name)}】\n" + body
+                send_message(message, markdown=True)
+
     save_sent_links()
 
 def send_alive_message():
