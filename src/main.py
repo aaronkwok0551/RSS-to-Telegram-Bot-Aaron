@@ -14,17 +14,17 @@ RSS_URLS = [
 ]
 
 ISD_LINK = "https://www.isdnews.gov.hk/subscriber/loginpage"
-SENT_TITLES_FILE = "sent_titles_rthk_info.json"
+SENT_LINKS_FILE = "sent_links_rthk_info.json"
 
 try:
-    with open(SENT_TITLES_FILE, "r", encoding="utf-8") as f:
-        SENT_TITLES = set(json.load(f))
+    with open(SENT_LINKS_FILE, "r", encoding="utf-8") as f:
+        SENT_LINKS = set(json.load(f))
 except (FileNotFoundError, json.JSONDecodeError):
-    SENT_TITLES = set()
+    SENT_LINKS = set()
 
-def save_sent_titles():
-    with open(SENT_TITLES_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(SENT_TITLES), f, ensure_ascii=False, indent=2)
+def save_sent_links():
+    with open(SENT_LINKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(SENT_LINKS), f, ensure_ascii=False, indent=2)
 
 def escape_md(text):
     return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
@@ -45,20 +45,21 @@ def send_message(text):
 def fetch_and_send():
     for name, url in RSS_URLS:
         feed = feedparser.parse(url)
+        print(f"【{name}】 抓到 {len(feed.entries)} 條")
         items = []
         for entry in feed.entries:
             title = escape_md(entry.title.strip())
             link = entry.link.strip()
-            if title not in SENT_TITLES:
+            if link not in SENT_LINKS:
                 items.append(f"{len(items)+1}\. [{title}]({link})")
-                SENT_TITLES.add(title)
+                SENT_LINKS.add(link)
         if items:
             if "info.gov.hk" in url:
                 message = ISD_LINK + "\n" + f"【{escape_md(name)}】\n" + "\n".join(items)
             else:
                 message = f"【{escape_md(name)}】\n" + "\n".join(items)
             send_message(message)
-    save_sent_titles()
+    save_sent_links()
 
 def send_alive_message():
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
