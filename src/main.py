@@ -13,6 +13,7 @@ RSS_URLS = [
     ('香港電台新聞', 'https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml')
 ]
 
+ISD_LINK = "https://www.isdnews.gov.hk/subscriber/loginpage"
 SENT_TITLES_FILE = "sent_titles_rthk_info.json"
 
 try:
@@ -52,7 +53,10 @@ def fetch_and_send():
                 items.append(f"{len(items)+1}\. [{title}]({link})")
                 SENT_TITLES.add(title)
         if items:
-            message = f"【{escape_md(name)}】\n" + "\n".join(items)
+            if "info.gov.hk" in url:
+                message = ISD_LINK + "\n" + f"【{escape_md(name)}】\n" + "\n".join(items)
+            else:
+                message = f"【{escape_md(name)}】\n" + "\n".join(items)
             send_message(message)
     save_sent_titles()
 
