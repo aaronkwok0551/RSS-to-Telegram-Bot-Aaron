@@ -30,30 +30,37 @@ def send_message(text):
 
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
-    
+
     sources = [
         ("新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("RTHK", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml")
     ]
-    
+
     for label, rss_url in sources:
         print(f"📡 檢查中：{label}")
         feed = feedparser.parse(rss_url)
-        new_messages = []
+        new_items = []
 
         for entry in feed.entries[:10]:
             title = entry.title
             link = entry.link
 
             if link not in SENT_URLS:
-                msg = f"*{title}*\n[🔗 點此查看新聞]({link})"
-                if "info.gov.hk" in rss_url:
-                    msg += "\n\n👉 [更多詳情請見 ISD 官網](https://www.isdnews.gov.hk/subscriber/loginpage)"
-                new_messages.append(msg)
+                new_items.append((title, link))
                 SENT_URLS.add(link)
 
-        for m in new_messages:
-            send_message(m)
+        if new_items:
+            if "rthk" in rss_url:
+                message = "*【RTHK 即時新聞】*\n"
+                for i, (title, link) in enumerate(new_items, start=1):
+                    message += f"{i}. [{title}]({link})\n"
+                message += f"\n🕓 更新時間：{datetime.now(pytz.timezone('Asia/Hong_Kong')).strftime('%Y-%m-%d %H:%M:%S')}"
+                send_message(message)
+            else:
+                for title, link in new_items:
+                    msg = f"*{title}*\n[🔗 點此查看新聞]({link})"
+                    msg += "\n\n👉 [更多詳情請見 ISD 官網](https://www.isdnews.gov.hk/subscriber/loginpage)"
+                    send_message(msg)
 
     save_sent_urls()
 
