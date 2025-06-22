@@ -53,10 +53,7 @@ def fetch_and_send():
 
             if link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
-                    msg = f"*{title}*\n...
-[🔗 點此查看新聞]({link})
-
-👉 [更多詳情請見 ISD 官網](https://www.isdnews.gov.hk/subscriber/loginpage)"
+                    msg = f"*{title}*\n[🔗 點此查看新聞]({link})\n\n👉 [GNMIS](https://www.isdnews.gov.hk/subscriber/loginpage)"
                     send_message(msg, disable_preview=True)
                 elif "rthk.hk" in rss_url:
                     new_messages.append(f"• [{title}]({link})")
