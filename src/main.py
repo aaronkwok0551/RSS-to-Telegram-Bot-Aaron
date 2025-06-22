@@ -1,4 +1,3 @@
-
 import os
 import time
 import json
@@ -7,9 +6,11 @@ import feedparser
 from datetime import datetime
 import pytz
 
+# Telegram Bot Token 和 Chat ID 從環境變數讀取
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
+# 儲存已發送連結的 JSON 檔案
 SENT_FILE = "sent_urls.json"
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
@@ -53,19 +54,22 @@ def fetch_and_send():
 
             if link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
+                    # 新聞稿：顯示預覽
                     msg = f"*{title}*\n[🔗 點此查看新聞]({link})\n\n👉 [GNMIS](https://www.isdnews.gov.hk/subscriber/loginpage)"
-                    send_message(msg, disable_preview=True)
+                    send_message(msg, disable_preview=False)
                 elif "rthk.hk" in rss_url:
+                    # RTHK：不顯示預覽，先暫存成列表
                     new_messages.append(f"• [{title}]({link})")
                 SENT_URLS.add(link)
 
-        # RTHK 整批發送
+        # 合併推送 RTHK 消息
         if "rthk.hk" in rss_url and new_messages:
             full_message = "*📻 RTHK 新聞摘要：*\n" + "\n".join(new_messages)
             send_message(full_message, disable_preview=True)
 
     save_sent_urls()
 
+    # 每日中午報平安
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
         send_message("✅ 我還活著，請放心！", disable_preview=True)
@@ -84,6 +88,7 @@ def check_clear_command():
     except Exception as e:
         print(f"檢查清除指令錯誤: {e}")
 
+# 每分鐘運行一次檢查
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15)):
