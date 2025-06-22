@@ -1,3 +1,4 @@
+
 import os
 import time
 import json
@@ -20,13 +21,13 @@ def save_sent_urls():
     with open(SENT_FILE, "w", encoding="utf-8") as f:
         json.dump(list(SENT_URLS), f, ensure_ascii=False)
 
-def send_message(text):
+def send_message(text, disable_preview=False):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": disable_preview
     }
     try:
         requests.post(url, data=payload)
@@ -35,12 +36,12 @@ def send_message(text):
 
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
-
+    
     sources = [
         ("新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("RTHK", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml")
     ]
-
+    
     for label, rss_url in sources:
         print(f"📡 檢查中：{label}")
         feed = feedparser.parse(rss_url)
@@ -51,45 +52,39 @@ def fetch_and_send():
             link = entry.link
 
             if link not in SENT_URLS:
-                msg = f"*{title}*\n[🔗 點此查看新聞]({link})"
                 if "info.gov.hk" in rss_url:
-                    msg += "\n\n👉 [更多詳情請見 ISD 官網](https://www.isdnews.gov.hk/subscriber/loginpage)"
-                new_messages.append(msg)
+                    msg = f"*{title}*
+[🔗 點此查看新聞]({link})
+
+👉 [更多詳情請見 ISD 官網](https://www.isdnews.gov.hk/subscriber/loginpage)"
+                    send_message(msg, disable_preview=True)
+                elif "rthk.hk" in rss_url:
+                    new_messages.append(f"• [{title}]({link})")
                 SENT_URLS.add(link)
 
-        if label == "RTHK" and new_messages:
-            full_message = f"*📻 RTHK 新聞摘要：*
-
-" + "\n\n".join(new_messages)
-            send_message(full_message)
-        else:
-            for m in new_messages:
-                send_message(m)
+        # RTHK 整批發送
+        if "rthk.hk" in rss_url and new_messages:
+            full_message = "*📻 RTHK 新聞摘要：*
+" + "
+".join(new_messages)
+            send_message(full_message, disable_preview=True)
 
     save_sent_urls()
 
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
-        send_message("✅ 我還活著，請放心！")
-
-LAST_UPDATE_ID = None
+        send_message("✅ 我還活著，請放心！", disable_preview=True)
 
 def check_clear_command():
-    global LAST_UPDATE_ID
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
-        params = {"timeout": 5}
-        if LAST_UPDATE_ID:
-            params["offset"] = LAST_UPDATE_ID + 1
-        response = requests.get(url, params=params).json()
-
+        response = requests.get(url).json()
         for update in response.get("result", []):
-            LAST_UPDATE_ID = update["update_id"]
             message = update.get("message", {}).get("text", "")
             if message.strip() == "/clear":
                 SENT_URLS.clear()
                 save_sent_urls()
-                send_message("🧹 已清空已發送紀錄")
+                send_message("🧹 已清空已發送紀錄", disable_preview=True)
                 break
     except Exception as e:
         print(f"檢查清除指令錯誤: {e}")
