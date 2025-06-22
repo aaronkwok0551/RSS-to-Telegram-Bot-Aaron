@@ -6,21 +6,33 @@ import feedparser
 from datetime import datetime
 import pytz
 
-# Telegram Bot Token 和 Chat ID 從環境變數讀取
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# 儲存已發送連結的 JSON 檔案
 SENT_FILE = "sent_urls.json"
+LAST_UPDATE_FILE = "last_update_id.json"
+
+# 初始化已發送網址集合
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
         SENT_URLS = set(json.load(f))
 except (FileNotFoundError, json.JSONDecodeError):
     SENT_URLS = set()
 
+# 初始化已處理的 Telegram update_id
+try:
+    with open(LAST_UPDATE_FILE, "r") as f:
+        LAST_UPDATE_ID = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    LAST_UPDATE_ID = 0
+
 def save_sent_urls():
     with open(SENT_FILE, "w", encoding="utf-8") as f:
         json.dump(list(SENT_URLS), f, ensure_ascii=False)
+
+def save_last_update_id(update_id):
+    with open(LAST_UPDATE_FILE, "w") as f:
+        json.dump(update_id, f)
 
 def send_message(text, disable_preview=False):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -54,47 +66,40 @@ def fetch_and_send():
 
             if link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
-                    # 新聞稿：顯示預覽
                     msg = f"*{title}*\n[🔗 點此查看新聞]({link})\n\n👉 [GNMIS](https://www.isdnews.gov.hk/subscriber/loginpage)"
                     send_message(msg, disable_preview=False)
                 elif "rthk.hk" in rss_url:
-                    # RTHK：不顯示預覽，先暫存成列表
                     new_messages.append(f"• [{title}]({link})")
                 SENT_URLS.add(link)
 
-        # 合併推送 RTHK 消息
         if "rthk.hk" in rss_url and new_messages:
             full_message = "*📻 RTHK 新聞摘要：*\n" + "\n".join(new_messages)
             send_message(full_message, disable_preview=True)
 
     save_sent_urls()
 
-    # 每日中午報平安
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
         send_message("✅ 我還活著，請放心！", disable_preview=True)
 
 def check_clear_command():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    global LAST_UPDATE_ID
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={LAST_UPDATE_ID + 1}"
     try:
         response = requests.get(url).json()
         results = response.get("result", [])
         for update in results:
-            update_id = update.get("update_id")
+            update_id = update.get("update_id", 0)
             message = update.get("message", {}).get("text", "")
             if message.strip() == "/clear":
                 SENT_URLS.clear()
                 save_sent_urls()
                 send_message("🧹 已清空已發送紀錄", disable_preview=True)
-                
-                # 回報這個 update 已處理，避免重複
-                offset_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={update_id + 1}"
-                requests.get(offset_url)
-                break
+            LAST_UPDATE_ID = max(LAST_UPDATE_ID, update_id)
+            save_last_update_id(LAST_UPDATE_ID)
     except Exception as e:
         print(f"檢查清除指令錯誤: {e}")
-        
-# 每分鐘運行一次檢查
+
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15)):
