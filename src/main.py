@@ -61,9 +61,7 @@ def fetch_and_send():
 
         # RTHK 整批發送
         if "rthk.hk" in rss_url and new_messages:
-            full_message = "*📻 RTHK 新聞摘要：*
-" + "
-".join(new_messages)
+            full_message = "*📻 RTHK 新聞摘要：*\n" + "\n".join(new_messages)
             send_message(full_message, disable_preview=True)
 
     save_sent_urls()
