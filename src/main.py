@@ -78,16 +78,22 @@ def check_clear_command():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
         response = requests.get(url).json()
-        for update in response.get("result", []):
+        results = response.get("result", [])
+        for update in results:
+            update_id = update.get("update_id")
             message = update.get("message", {}).get("text", "")
             if message.strip() == "/clear":
                 SENT_URLS.clear()
                 save_sent_urls()
                 send_message("🧹 已清空已發送紀錄", disable_preview=True)
+                
+                # 回報這個 update 已處理，避免重複
+                offset_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={update_id + 1}"
+                requests.get(offset_url)
                 break
     except Exception as e:
         print(f"檢查清除指令錯誤: {e}")
-
+        
 # 每分鐘運行一次檢查
 while True:
     hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
