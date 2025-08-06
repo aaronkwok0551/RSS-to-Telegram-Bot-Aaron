@@ -10,28 +10,28 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 SENT_FILE = "sent_urls.json"
-LAST_UPDATE_FILE = "last_update_id.json"
+UPDATE_ID_FILE = "last_update_id.json"
 
-# 初始化已發送網址集合
+# 載入已發送連結
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
         SENT_URLS = set(json.load(f))
-except (FileNotFoundError, json.JSONDecodeError):
+except:
     SENT_URLS = set()
 
-# 初始化已處理的 Telegram update_id
+# 載入最後處理過的 Telegram update_id
 try:
-    with open(LAST_UPDATE_FILE, "r") as f:
+    with open(UPDATE_ID_FILE, "r") as f:
         LAST_UPDATE_ID = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
+except:
     LAST_UPDATE_ID = 0
 
 def save_sent_urls():
     with open(SENT_FILE, "w", encoding="utf-8") as f:
         json.dump(list(SENT_URLS), f, ensure_ascii=False)
 
-def save_last_update_id(update_id):
-    with open(LAST_UPDATE_FILE, "w") as f:
+def save_update_id(update_id):
+    with open(UPDATE_ID_FILE, "w", encoding="utf-8") as f:
         json.dump(update_id, f)
 
 def send_message(text, disable_preview=False):
@@ -72,6 +72,7 @@ def fetch_and_send():
                     new_messages.append(f"• [{title}]({link})")
                 SENT_URLS.add(link)
 
+        # RTHK 整批發送
         if "rthk.hk" in rss_url and new_messages:
             full_message = "*📻 RTHK 新聞摘要：*\n" + "\n".join(new_messages)
             send_message(full_message, disable_preview=True)
@@ -84,19 +85,23 @@ def fetch_and_send():
 
 def check_clear_command():
     global LAST_UPDATE_ID
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={LAST_UPDATE_ID + 1}"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
         response = requests.get(url).json()
-        results = response.get("result", [])
-        for update in results:
-            update_id = update.get("update_id", 0)
+        for update in response.get("result", []):
+            update_id = update["update_id"]
+            if update_id <= LAST_UPDATE_ID:
+                continue  # 已處理過，跳過
+
             message = update.get("message", {}).get("text", "")
             if message.strip() == "/clear":
                 SENT_URLS.clear()
                 save_sent_urls()
                 send_message("🧹 已清空已發送紀錄", disable_preview=True)
-            LAST_UPDATE_ID = max(LAST_UPDATE_ID, update_id)
-            save_last_update_id(LAST_UPDATE_ID)
+
+            LAST_UPDATE_ID = update_id
+            save_update_id(LAST_UPDATE_ID)
+
     except Exception as e:
         print(f"檢查清除指令錯誤: {e}")
 
