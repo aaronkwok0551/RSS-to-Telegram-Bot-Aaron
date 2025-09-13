@@ -81,7 +81,7 @@ def fetch_and_send():
 
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
-        send_message("✅ 我還活著，請放心！！", disable_preview=True)
+        send_message("✅ 我還活著，請放心！！！", disable_preview=True)
 
 def check_clear_command():
     global LAST_UPDATE_ID
