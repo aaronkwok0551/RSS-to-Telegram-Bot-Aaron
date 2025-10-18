@@ -6,37 +6,27 @@ import feedparser
 from datetime import datetime
 import pytz
 
-# === 設定區 ===
+# === Telegram 設定 ===
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# 支援多個 ID：
-# 1) 若有設定環境變數 CHAT_IDS（逗號分隔），會優先使用
-# 2) 否則使用單一 CHAT_ID（若有）+ 你提供的 8499232968
-_env_chat_ids = os.environ.get("CHAT_IDS", "").strip()
-if _env_chat_ids:
-    CHAT_IDS = [cid.strip() for cid in _env_chat_ids.split(",") if cid.strip()]
-else:
-    CHAT_IDS = []
-    if os.environ.get("CHAT_ID"):
-        CHAT_IDS.append(os.environ.get("CHAT_ID").strip())
-    # 把你提供的新 ID 加入
-    CHAT_IDS.append("8499232968")
+# 📍 固定兩個收件人 ID（你要求的）
+CHAT_IDS = [
+    "264588454",   # ✅ 你原本的 ID
+    "8499232968"   # ✅ 新增的 ID
+]
 
-# 去除可能的重複與空值
-CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
-
-# 檔名
+# 檔案名稱
 SENT_FILE = "sent_urls.json"
 UPDATE_ID_FILE = "last_update_id.json"
 
-# === 讀取已發送紀錄 ===
+# === 載入已發送連結 ===
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
         SENT_URLS = set(json.load(f))
 except:
     SENT_URLS = set()
 
-# === 讀取最後處理過的 update_id ===
+# === 載入最後處理過的 update_id ===
 try:
     with open(UPDATE_ID_FILE, "r", encoding="utf-8") as f:
         LAST_UPDATE_ID = json.load(f)
@@ -51,8 +41,8 @@ def save_update_id(update_id):
     with open(UPDATE_ID_FILE, "w", encoding="utf-8") as f:
         json.dump(update_id, f)
 
+# === 發送訊息 ===
 def send_message_to(chat_id, text, disable_preview=False):
-    """只發送給指定 chat_id（用於回覆指令）。"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -66,10 +56,10 @@ def send_message_to(chat_id, text, disable_preview=False):
         print(f"發送錯誤 ({chat_id}): {e}")
 
 def send_message(text, disable_preview=False):
-    """發送給所有已設定的 CHAT_IDS。"""
     for chat_id in CHAT_IDS:
         send_message_to(chat_id, text, disable_preview=disable_preview)
 
+# === 抓新聞並發送 ===
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
     
@@ -119,8 +109,8 @@ def fetch_and_send():
     if now.strftime("%H:%M") == "12:00":
         send_message("✅ 我還活著，請放心！", disable_preview=True)
 
+# === 檢查 /clear 指令 ===
 def check_clear_command():
-    """監聽 /clear 指令：清空已發送紀錄。只回覆觸發指令的聊天。"""
     global LAST_UPDATE_ID
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
@@ -134,7 +124,7 @@ def check_clear_command():
         if update_id is None:
             continue
         if update_id <= LAST_UPDATE_ID:
-            continue  # 已處理過
+            continue
 
         message_obj = update.get("message") or {}
         text = (message_obj.get("text") or "").strip()
@@ -142,32 +132,28 @@ def check_clear_command():
         chat_id = str(chat.get("id")) if chat.get("id") is not None else None
 
         if text == "/clear":
-            # 限制只有在 CHAT_IDS 清單內的聊天才能清除
             if chat_id and chat_id in CHAT_IDS:
                 SENT_URLS.clear()
                 save_sent_urls()
                 send_message_to(chat_id, "🧹 已清空已發送紀錄", disable_preview=True)
             else:
-                # 非授權聊天的指令：忽略或回覆提示
                 if chat_id:
                     send_message_to(chat_id, "⛔️ 此聊天不在授權清單，無法使用 /clear。", disable_preview=True)
 
         LAST_UPDATE_ID = update_id
         save_update_id(LAST_UPDATE_ID)
 
+# === 主程式 ===
 def main_loop():
     if not BOT_TOKEN:
-        print("❌ 未設定 BOT_TOKEN 環境變數。請先設定。")
-        return
-    if not CHAT_IDS:
-        print("❌ 沒有可用的 CHAT_ID。請設定 CHAT_ID 或 CHAT_IDS。")
+        print("❌ 未設定 BOT_TOKEN 環境變數，請先設定。")
         return
 
     print(f"✅ 已啟動，將會發送到以下聊天 ID：{', '.join(CHAT_IDS)}")
 
     while True:
         hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-        # 08:30 ~ 24:00（含 00:15）
+        # 每天 08:30 ~ 24:00（含 00:15）
         within_mins = (
             (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and
             (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15))
