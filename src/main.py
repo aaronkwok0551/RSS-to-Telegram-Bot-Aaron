@@ -7,7 +7,7 @@ import feedparser
 from datetime import datetime
 import pytz
 
-# =============== 基本設定 ===============
+# ================= 基本設定 =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # 支援多個 ID：優先讀 CHAT_IDS（逗號分隔），否則退回單一 CHAT_ID
@@ -23,21 +23,23 @@ CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]  # 去重+過濾空�
 SENT_FILE = "sent_urls.json"
 UPDATE_ID_FILE = "last_update_id.json"
 
-# =============== MarkdownV2 轉義（關鍵） ===============
-# 文字用的轉義（粗體文字、連結文字）
+# ================= MarkdownV2 轉義（關鍵） =================
+# 文字的轉義（粗體、連結文字）
+_MD2_TEXT_PATTERN = re.compile(r"([_\*\[\]\(\)~`>#+\-=|{}\.!\\])")
 def md2_escape_text(s: str) -> str:
     if not s:
         return ""
-    # 需要轉義的字元： _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-    return re.sub(r"([_\*$begin:math:display$$end:math:display$$begin:math:text$$end:math:text$~`>#+\-=|{}\.!\\])", r"\\\1", s)
+    # 將 MarkdownV2 需要轉義的字元前面加上反斜線
+    return _MD2_TEXT_PATTERN.sub(r"\\\1", s)
 
-# URL 用的轉義（常見是括號與反斜線）
+# URL 的轉義（最常出錯的是括號與反斜線）
 def md2_escape_url(u: str) -> str:
     if not u:
         return ""
-    return u.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+    # 只處理 Markdown 會誤判的符號，避免把 URL 弄壞
+    return u.replace("\\", r"\\").replace("(", r"$begin:math:text$").replace(")", r"$end:math:text$")
 
-# =============== 資料載入 ===============
+# ================= 資料載入 =================
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
         SENT_URLS = set(json.load(f))
@@ -64,8 +66,9 @@ def save_update_id(update_id):
     except Exception as e:
         print("save_update_id error:", e)
 
-# =============== 發送功能（MarkdownV2） ===============
+# ================= 發送功能（MarkdownV2） =================
 def send_message_to(chat_id, text, disable_preview=False):
+    """發送到單一 chat_id（使用 MarkdownV2）。"""
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN 未設定，無法發送。")
         return
@@ -73,18 +76,18 @@ def send_message_to(chat_id, text, disable_preview=False):
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "MarkdownV2",
+        "parse_mode": "MarkdownV2",          # 關鍵：使用 MarkdownV2
         "disable_web_page_preview": disable_preview
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
-        ok = False
-        desc = ""
+        # 若 API 回報錯誤，印出精簡描述方便排錯（不會炸 log）
         try:
             j = r.json()
             ok = j.get("ok", False)
             desc = j.get("description", "")
         except Exception:
+            ok = False
             desc = r.text[:300]
         if r.status_code != 200 or not ok:
             print(f"[sendMessage] to {chat_id}: status={r.status_code}, ok={ok}, desc={desc}")
@@ -95,7 +98,7 @@ def send_message(text, disable_preview=False):
     for chat_id in CHAT_IDS:
         send_message_to(chat_id, text, disable_preview=disable_preview)
 
-# =============== 抓新聞並發送（已套用轉義） ===============
+# ================= 抓新聞並發送（已全面轉義） =================
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
 
@@ -120,12 +123,13 @@ def fetch_and_send():
             if not raw_title or not raw_link:
                 continue
 
-            # 轉義後的文字/網址
+            # 轉義後的文字/網址（務必只用轉義後的變數）
             title = md2_escape_text(raw_title)
             link  = md2_escape_url(raw_link)
 
             if raw_link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
+                    # 單則推送（粗體標題 + 連結）
                     msg = (
                         f"*{title}*\n"
                         f"[🔗 點此查看新聞]({link})\n\n"
@@ -134,7 +138,7 @@ def fetch_and_send():
                     send_message(msg, disable_preview=False)
 
                 elif "rthk.hk" in rss_url:
-                    # 編號必須用 \\.
+                    # 摘要列表：注意數字點要用 \\.
                     idx = len(rthk_lines) + 1
                     rthk_lines.append(f"{idx}\\. [{title}]({link})")
 
@@ -152,7 +156,7 @@ def fetch_and_send():
     if now.strftime("%H:%M") == "12:00":
         send_message(md2_escape_text("✅ 我還活著，請放心！"), disable_preview=True)
 
-# =============== 監聽 /clear 指令 ===============
+# ================= 監聽 /clear 指令 =================
 def check_clear_command():
     global LAST_UPDATE_ID
     if not BOT_TOKEN:
@@ -186,7 +190,7 @@ def check_clear_command():
         LAST_UPDATE_ID = update_id
         save_update_id(LAST_UPDATE_ID)
 
-# =============== 主流程 ===============
+# ================= 主流程 =================
 def main_loop():
     if not BOT_TOKEN:
         print("❌ 未設定 BOT_TOKEN。請在 Railway 的 Variables 設定 BOT_TOKEN。")
