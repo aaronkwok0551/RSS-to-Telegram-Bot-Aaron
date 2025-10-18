@@ -68,18 +68,18 @@ def save_update_id(update_id):
         print("save_update_id error:", e)
 
 # =============== 發送功能（HTML 解析） ===============
-def send_message_to(chat_id, html_text, disable_preview=False):
+def send_message_to(chat_id, text, disable_preview=False):
+    """
+    先用目前設定的格式發送（你如果是 HTML 就 parse_mode='HTML'；如果是 MarkdownV2 就填 'MarkdownV2'）。
+    若遇到 400 解析錯誤，立即降級成純文字再補發一次，確保每個人都能收到。
+    """
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN 未設定，無法發送。")
         return
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": html_text,
-        "parse_mode": "HTML",                 # ← 使用 HTML，穩定不踩雷
-        "disable_web_page_preview": disable_preview
-    }
-    try:
+
+    def _post(payload):
         r = requests.post(url, data=payload, timeout=15)
         try:
             j = r.json()
@@ -88,14 +88,59 @@ def send_message_to(chat_id, html_text, disable_preview=False):
         except Exception:
             ok = False
             desc = r.text[:300]
-        if r.status_code != 200 or not ok:
-            print(f"[sendMessage] to {chat_id}: status={r.status_code}, ok={ok}, desc={desc}")
-    except Exception as e:
-        print(f"發送錯誤 ({chat_id}): {e}")
+        return r.status_code, ok, desc
 
-def send_message(html_text, disable_preview=False):
+    # >>> 如果你在用 HTML 版，保持 'HTML'；若你在用 MarkdownV2，改成 'MarkdownV2'
+    primary_parse_mode = "HTML"   # ← 你跑 HTML 版就留這個；跑 MarkdownV2 就改成 "MarkdownV2"
+
+    # 1) 主要嘗試（HTML / MarkdownV2）
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": primary_parse_mode,
+        "disable_web_page_preview": disable_preview
+    }
+    status, ok, desc = _post(payload)
+
+    # 2) 若解析出錯，降級成純文字重試一次
+    if (not ok) and status == 400 and "parse entit" in (desc or "").lower():
+        fallback_payload = {
+            "chat_id": chat_id,
+            "text": strip_formatting_to_plain(text),  # 下面提供這個小工具
+            # 不帶 parse_mode，純文字最穩
+            "disable_web_page_preview": disable_preview
+        }
+        status2, ok2, desc2 = _post(fallback_payload)
+        print(f"[sendMessage][fallback-plain] to {chat_id}: status={status2}, ok={ok2}, desc={desc2}")
+        if not ok2:
+            print(f"[sendMessage][primary] to {chat_id}: status={status}, ok={ok}, desc={desc}")
+    else:
+        # 主要嘗試結果（成功就不印；失敗才印）
+        if not ok:
+            print(f"[sendMessage] to {chat_id}: status={status}, ok={ok}, desc={desc}")
+
+def send_message(text, disable_preview=False):
+    """
+    發給所有 CHAT_IDS；每個收件人之間 sleep 0.2 秒，避免偶發節流。
+    """
     for chat_id in CHAT_IDS:
-        send_message_to(chat_id, html_text, disable_preview=disable_preview)
+        send_message_to(chat_id, text, disable_preview=disable_preview)
+        time.sleep(0.2)
+
+# --- 放在同一檔案裡的幫手函式：把格式標籤去掉，轉純文字（給 fallback 用） ---
+def strip_formatting_to_plain(s: str) -> str:
+    if not s:
+        return ""
+    # 簡單把常見的 HTML / MarkdownV2 標記去掉，保留可讀文字與網址
+    # 去 HTML 標籤
+    try:
+        import re
+        s = re.sub(r"<[^>]+>", "", s)  # 去除 <b>、<a href=...> 等
+    except Exception:
+        pass
+    # 去 MarkdownV2 反斜線
+    s = s.replace("\\", "")
+    return s
 
 # =============== 抓新聞並發送（已全面轉為 HTML） ===============
 def fetch_and_send():
