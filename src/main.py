@@ -1,4 +1,4 @@
-send_message("🧪 測試訊息：看看每個 ID 是否能收到", disable_preview=True)
+
 
 import os
 import time
