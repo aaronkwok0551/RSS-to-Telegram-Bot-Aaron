@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import re
 import requests
 import feedparser
 from datetime import datetime
@@ -17,13 +18,24 @@ else:
     CHAT_IDS = []
     if os.environ.get("CHAT_ID"):
         CHAT_IDS.append(os.environ.get("CHAT_ID").strip())
+CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]  # 去重+過濾空值
 
-# 去重 + 過濾空值
-CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
-
-# 檔案名稱
 SENT_FILE = "sent_urls.json"
 UPDATE_ID_FILE = "last_update_id.json"
+
+# =============== MarkdownV2 轉義（關鍵） ===============
+# 文字用的轉義（粗體文字、連結文字）
+def md2_escape_text(s: str) -> str:
+    if not s:
+        return ""
+    # 需要轉義的字元： _ * [ ] ( ) ~ ` > # + - = | { } . ! \
+    return re.sub(r"([_\*$begin:math:display$$end:math:display$$begin:math:text$$end:math:text$~`>#+\-=|{}\.!\\])", r"\\\1", s)
+
+# URL 用的轉義（最常出事的是括號與反斜線）
+def md2_escape_url(u: str) -> str:
+    if not u:
+        return ""
+    return u.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
 
 # =============== 資料載入 ===============
 try:
@@ -52,42 +64,45 @@ def save_update_id(update_id):
     except Exception as e:
         print("save_update_id error:", e)
 
-# =============== 發送功能 ===============
+# =============== 發送功能（MarkdownV2） ===============
 def send_message_to(chat_id, text, disable_preview=False):
+    """發送到單一 chat_id，並印精簡結果（便於排錯）。"""
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN 未設定，無法發送。")
+        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "MarkdownV2",          # ← 使用 MarkdownV2
         "disable_web_page_preview": disable_preview
     }
     try:
-        r = requests.post(url, data=payload, timeout=10)
-
-        # ✅ 嘗試解析 Telegram 回應，並在 Logs 中印出詳細內容
+        r = requests.post(url, data=payload, timeout=15)
+        ok = False
+        desc = ""
         try:
-            resp = r.json()
+            j = r.json()
+            ok = j.get("ok", False)
+            desc = j.get("description", "")
         except Exception:
-            resp = {"raw": r.text}
-
-        # 🚨 關鍵：這行會在 Railway Logs 顯示 API 回應，幫我們找出問題
-        print(f"[DEBUG] send to {chat_id} -> status={r.status_code}, response={resp}")
-
+            desc = r.text[:300]
+        if r.status_code != 200 or not ok:
+            print(f"[sendMessage] to {chat_id}: status={r.status_code}, ok={ok}, desc={desc}")
     except Exception as e:
         print(f"發送錯誤 ({chat_id}): {e}")
 
 def send_message(text, disable_preview=False):
-    """發送給所有 CHAT_IDS。"""
     for chat_id in CHAT_IDS:
         send_message_to(chat_id, text, disable_preview=disable_preview)
 
-# =============== 來源抓取 ===============
+# =============== 抓新聞並發送（已套用轉義） ===============
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
 
     sources = [
         ("新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
-        ("RTHK", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
+        ("RTHK",  "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
     ]
 
     for label, rss_url in sources:
@@ -100,9 +115,9 @@ def fetch_and_send():
 
         new_messages = []
 
-        for entry in feed.entries[:10]:
-            title = getattr(entry, "title", "").strip()
-            link = getattr(entry, "link", "").strip()
+        for entry in getattr(feed, "entries", [])[:10]:
+            title = md2_escape_text(getattr(entry, "title", "").strip())
+            link  = md2_escape_url(getattr(entry, "link", "").strip())
             if not title or not link:
                 continue
 
@@ -122,7 +137,8 @@ def fetch_and_send():
 
         # RTHK 整批發送
         if "rthk.hk" in rss_url and new_messages:
-            full_message = "*📻 RTHK 新聞摘要：*\n" + "\n".join(new_messages)
+            header = "*📻 RTHK 新聞摘要：*\n"
+            full_message = header + "\n".join(new_messages)
             send_message(full_message, disable_preview=True)
 
     save_sent_urls()
@@ -131,22 +147,21 @@ def fetch_and_send():
     if now.strftime("%H:%M") == "12:00":
         send_message("✅ 我還活著，請放心！", disable_preview=True)
 
-# =============== 指令監聽 ===============
+# =============== 監聽 /clear 指令 ===============
 def check_clear_command():
-    """監聽 /clear 指令：僅允許在授權的聊天使用。"""
     global LAST_UPDATE_ID
+    if not BOT_TOKEN:
+        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     try:
-        response = requests.get(url, timeout=15).json()
+        response = requests.get(url, timeout=20).json()
     except Exception as e:
         print(f"取得更新時發生錯誤: {e}")
         return
 
     for update in response.get("result", []):
         update_id = update.get("update_id")
-        if update_id is None:
-            continue
-        if update_id <= LAST_UPDATE_ID:
+        if update_id is None or (isinstance(LAST_UPDATE_ID, int) and update_id <= LAST_UPDATE_ID):
             continue
 
         message_obj = update.get("message") or {}
@@ -158,43 +173,13 @@ def check_clear_command():
             if chat_id and chat_id in CHAT_IDS:
                 SENT_URLS.clear()
                 save_sent_urls()
-                send_message_to(chat_id, "🧹 已清空已發送紀錄", disable_preview=True)
+                send_message_to(chat_id, md2_escape_text("🧹 已清空已發送紀錄"), disable_preview=True)
             else:
                 if chat_id:
-                    send_message_to(chat_id, "⛔️ 此聊天不在授權清單，無法使用 /clear。", disable_preview=True)
+                    send_message_to(chat_id, md2_escape_text("⛔️ 此聊天不在授權清單，無法使用 /clear。"), disable_preview=True)
 
         LAST_UPDATE_ID = update_id
         save_update_id(LAST_UPDATE_ID)
-
-# =============== 安全 Debug 工具（可開關） ===============
-def debug_print_updates(limit=3):
-    """
-    精簡列出 getUpdates 的關鍵欄位（避免炸 log）。
-    使用方式：Railway 設定 DEBUG_UPDATES=1 後重啟，程式會列印少量資訊後結束。
-    """
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {
-        "offset": int(LAST_UPDATE_ID) + 1 if isinstance(LAST_UPDATE_ID, int) else None,
-        "limit": limit,
-        "timeout": 0
-    }
-    params = {k: v for k, v in params.items() if v is not None}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        j = r.json()
-        results = j.get("result", [])
-        print(f"[getUpdates] status={r.status_code}, count={len(results)}")
-        for upd in results:
-            chat = (upd.get("message") or {}).get("chat") or {}
-            print(
-                "update_id=", upd.get("update_id"),
-                "| chat_id=", chat.get("id"),
-                "| type=", chat.get("type"),
-                "| title=", chat.get("title"),
-                "| username=", chat.get("username")
-            )
-    except Exception as e:
-        print("getUpdates error:", e)
 
 # =============== 主流程 ===============
 def main_loop():
@@ -203,20 +188,6 @@ def main_loop():
         return
     if not CHAT_IDS:
         print("❌ 沒有任何接收 ID。請在 Railway 設定 CHAT_IDS（或 CHAT_ID）。")
-        return
-
-    # ---- 一次性測試模式：僅在 TEST_SEND=1 時，單點發送給特定 ID 後結束 ----
-    if os.environ.get("TEST_SEND") == "1":
-        target = os.environ.get("TEST_TARGET", "") or (CHAT_IDS[0] if CHAT_IDS else "")
-        if not target:
-            print("TEST_SEND=1 但沒有可用的目標 ID。請設定 TEST_TARGET 或 CHAT_IDS。")
-            return
-        send_message_to(target, "🧪 單點測試：這是一條測試訊息（TEST_SEND=1）", disable_preview=True)
-        return
-    # ---- 精簡 getUpdates 模式：DEBUG_UPDATES=1 時只列印少量資訊後結束 ----
-    if os.environ.get("DEBUG_UPDATES") == "1":
-        print("🧪 DEBUG: 列出少量 getUpdates 資訊")
-        debug_print_updates(limit=3)
         return
 
     print(f"✅ 已啟動，會發送到以下 ID：{', '.join(CHAT_IDS)}")
