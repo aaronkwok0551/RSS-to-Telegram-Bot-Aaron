@@ -1,13 +1,12 @@
 import os
 import time
 import json
-import re
 import requests
 import feedparser
 from datetime import datetime
 import pytz
 
-# ================= 基本設定 =================
+# =============== 基本設定 ===============
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # 支援多個 ID：優先讀 CHAT_IDS（逗號分隔），否則退回單一 CHAT_ID
@@ -23,23 +22,25 @@ CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]  # 去重+過濾空�
 SENT_FILE = "sent_urls.json"
 UPDATE_ID_FILE = "last_update_id.json"
 
-# ================= MarkdownV2 轉義（關鍵） =================
-# 文字的轉義（粗體、連結文字）
-_MD2_TEXT_PATTERN = re.compile(r"([_\*\[\]\(\)~`>#+\-=|{}\.!\\])")
-def md2_escape_text(s: str) -> str:
+# =============== HTML 轉義（關鍵） ===============
+def html_escape(s: str) -> str:
+    """把文字中的 & < > 轉義，避免 HTML 被破壞。"""
     if not s:
         return ""
-    # 將 MarkdownV2 需要轉義的字元前面加上反斜線
-    return _MD2_TEXT_PATTERN.sub(r"\\\1", s)
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-# URL 的轉義（最常出錯的是括號與反斜線）
-def md2_escape_url(u: str) -> str:
-    if not u:
+def html_attr_escape(s: str) -> str:
+    """用在 HTML 屬性（href）內，轉義 & < > 和雙引號。"""
+    if not s:
         return ""
-    # 只處理 Markdown 會誤判的符號，避免把 URL 弄壞
-    return u.replace("\\", r"\\").replace("(", r"$begin:math:text$").replace(")", r"$end:math:text$")
+    return (
+        s.replace("&", "&amp;")
+         .replace("<", "&lt;")
+         .replace(">", "&gt;")
+         .replace('"', "&quot;")
+    )
 
-# ================= 資料載入 =================
+# =============== 資料載入 ===============
 try:
     with open(SENT_FILE, "r", encoding="utf-8") as f:
         SENT_URLS = set(json.load(f))
@@ -66,22 +67,20 @@ def save_update_id(update_id):
     except Exception as e:
         print("save_update_id error:", e)
 
-# ================= 發送功能（MarkdownV2） =================
-def send_message_to(chat_id, text, disable_preview=False):
-    """發送到單一 chat_id（使用 MarkdownV2）。"""
+# =============== 發送功能（HTML 解析） ===============
+def send_message_to(chat_id, html_text, disable_preview=False):
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN 未設定，無法發送。")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "MarkdownV2",          # 關鍵：使用 MarkdownV2
+        "text": html_text,
+        "parse_mode": "HTML",                 # ← 使用 HTML，穩定不踩雷
         "disable_web_page_preview": disable_preview
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
-        # 若 API 回報錯誤，印出精簡描述方便排錯（不會炸 log）
         try:
             j = r.json()
             ok = j.get("ok", False)
@@ -94,11 +93,11 @@ def send_message_to(chat_id, text, disable_preview=False):
     except Exception as e:
         print(f"發送錯誤 ({chat_id}): {e}")
 
-def send_message(text, disable_preview=False):
+def send_message(html_text, disable_preview=False):
     for chat_id in CHAT_IDS:
-        send_message_to(chat_id, text, disable_preview=disable_preview)
+        send_message_to(chat_id, html_text, disable_preview=disable_preview)
 
-# ================= 抓新聞並發送（已全面轉義） =================
+# =============== 抓新聞並發送（已全面轉為 HTML） ===============
 def fetch_and_send():
     print("🔍 正在檢查新聞…", datetime.now(pytz.timezone("Asia/Hong_Kong")).strftime("%H:%M:%S"))
 
@@ -123,30 +122,29 @@ def fetch_and_send():
             if not raw_title or not raw_link:
                 continue
 
-            # 轉義後的文字/網址（務必只用轉義後的變數）
-            title = md2_escape_text(raw_title)
-            link  = md2_escape_url(raw_link)
+            # 轉義
+            title = html_escape(raw_title)
+            link  = html_attr_escape(raw_link)
 
             if raw_link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
-                    # 單則推送（粗體標題 + 連結）
+                    # 單則推送（粗體標題 + 可點連結）
                     msg = (
-                        f"*{title}*\n"
-                        f"[🔗 點此查看新聞]({link})\n\n"
-                        f"👉 [GNMIS](https://www.isdnews.gov.hk/subscriber/loginpage)"
+                        f"<b>{title}</b>\n"
+                        f"<a href=\"{link}\">🔗 點此查看新聞</a>\n\n"
+                        f"👉 <a href=\"https://www.isdnews.gov.hk/subscriber/loginpage\">GNMIS</a>"
                     )
                     send_message(msg, disable_preview=False)
 
                 elif "rthk.hk" in rss_url:
-                    # 摘要列表：注意數字點要用 \\.
                     idx = len(rthk_lines) + 1
-                    rthk_lines.append(f"{idx}\\. [{title}]({link})")
+                    rthk_lines.append(f"{idx}. <a href=\"{link}\">{title}</a>")
 
                 SENT_URLS.add(raw_link)
 
         # RTHK 整批發送
         if "rthk.hk" in rss_url and rthk_lines:
-            header = "*📻 RTHK 新聞摘要：*\n"
+            header = "<b>📻 RTHK 新聞摘要：</b>\n"
             full_message = header + "\n".join(rthk_lines)
             send_message(full_message, disable_preview=True)
 
@@ -154,9 +152,9 @@ def fetch_and_send():
 
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
-        send_message(md2_escape_text("✅ 我還活著，請放心！"), disable_preview=True)
+        send_message("<b>✅ 我還活著，請放心！</b>", disable_preview=True)
 
-# ================= 監聽 /clear 指令 =================
+# =============== 監聽 /clear 指令 ===============
 def check_clear_command():
     global LAST_UPDATE_ID
     if not BOT_TOKEN:
@@ -173,6 +171,7 @@ def check_clear_command():
         if update_id is None or (isinstance(LAST_UPDATE_ID, int) and update_id <= LAST_UPDATE_ID):
             continue
 
+    # 只處理簡單 /clear（可選）
         message_obj = update.get("message") or {}
         text = (message_obj.get("text") or "").strip()
         chat = message_obj.get("chat") or {}
@@ -182,15 +181,15 @@ def check_clear_command():
             if chat_id and chat_id in CHAT_IDS:
                 SENT_URLS.clear()
                 save_sent_urls()
-                send_message_to(chat_id, md2_escape_text("🧹 已清空已發送紀錄"), disable_preview=True)
+                send_message_to(chat_id, "<b>🧹 已清空已發送紀錄</b>", disable_preview=True)
             else:
                 if chat_id:
-                    send_message_to(chat_id, md2_escape_text("⛔️ 此聊天不在授權清單，無法使用 /clear。"), disable_preview=True)
+                    send_message_to(chat_id, "⛔️ 此聊天不在授權清單，無法使用 /clear。", disable_preview=True)
 
         LAST_UPDATE_ID = update_id
         save_update_id(LAST_UPDATE_ID)
 
-# ================= 主流程 =================
+# =============== 主流程 ===============
 def main_loop():
     if not BOT_TOKEN:
         print("❌ 未設定 BOT_TOKEN。請在 Railway 的 Variables 設定 BOT_TOKEN。")
