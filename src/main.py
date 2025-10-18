@@ -5,6 +5,7 @@ import requests
 import feedparser
 from datetime import datetime
 import pytz
+send_message("🧪 測試訊息：看看每個 ID 是否能收到", disable_preview=True)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
