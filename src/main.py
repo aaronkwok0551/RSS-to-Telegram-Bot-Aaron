@@ -31,7 +31,7 @@ def md2_escape_text(s: str) -> str:
     # 需要轉義的字元： _ * [ ] ( ) ~ ` > # + - = | { } . ! \
     return re.sub(r"([_\*$begin:math:display$$end:math:display$$begin:math:text$$end:math:text$~`>#+\-=|{}\.!\\])", r"\\\1", s)
 
-# URL 用的轉義（最常出事的是括號與反斜線）
+# URL 用的轉義（常見是括號與反斜線）
 def md2_escape_url(u: str) -> str:
     if not u:
         return ""
@@ -66,7 +66,6 @@ def save_update_id(update_id):
 
 # =============== 發送功能（MarkdownV2） ===============
 def send_message_to(chat_id, text, disable_preview=False):
-    """發送到單一 chat_id，並印精簡結果（便於排錯）。"""
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN 未設定，無法發送。")
         return
@@ -74,7 +73,7 @@ def send_message_to(chat_id, text, disable_preview=False):
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "MarkdownV2",          # ← 使用 MarkdownV2
+        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": disable_preview
     }
     try:
@@ -113,15 +112,19 @@ def fetch_and_send():
             print(f"RSS 解析失敗：{rss_url} - {e}")
             continue
 
-        new_messages = []
+        rthk_lines = []
 
         for entry in getattr(feed, "entries", [])[:10]:
-            title = md2_escape_text(getattr(entry, "title", "").strip())
-            link  = md2_escape_url(getattr(entry, "link", "").strip())
-            if not title or not link:
+            raw_title = (getattr(entry, "title", "") or "").strip()
+            raw_link  = (getattr(entry, "link", "")  or "").strip()
+            if not raw_title or not raw_link:
                 continue
 
-            if link not in SENT_URLS:
+            # 轉義後的文字/網址
+            title = md2_escape_text(raw_title)
+            link  = md2_escape_url(raw_link)
+
+            if raw_link not in SENT_URLS:
                 if "info.gov.hk" in rss_url:
                     msg = (
                         f"*{title}*\n"
@@ -131,21 +134,23 @@ def fetch_and_send():
                     send_message(msg, disable_preview=False)
 
                 elif "rthk.hk" in rss_url:
-                    new_messages.append(f"• [{title}]({link})")
+                    # 編號必須用 \\.
+                    idx = len(rthk_lines) + 1
+                    rthk_lines.append(f"{idx}\\. [{title}]({link})")
 
-                SENT_URLS.add(link)
+                SENT_URLS.add(raw_link)
 
         # RTHK 整批發送
-        if "rthk.hk" in rss_url and new_messages:
+        if "rthk.hk" in rss_url and rthk_lines:
             header = "*📻 RTHK 新聞摘要：*\n"
-            full_message = header + "\n".join(new_messages)
+            full_message = header + "\n".join(rthk_lines)
             send_message(full_message, disable_preview=True)
 
     save_sent_urls()
 
     now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
     if now.strftime("%H:%M") == "12:00":
-        send_message("✅ 我還活著，請放心！", disable_preview=True)
+        send_message(md2_escape_text("✅ 我還活著，請放心！"), disable_preview=True)
 
 # =============== 監聽 /clear 指令 ===============
 def check_clear_command():
