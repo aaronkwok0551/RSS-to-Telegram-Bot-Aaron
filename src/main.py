@@ -54,7 +54,6 @@ def save_update_id(update_id):
 
 # =============== 發送功能 ===============
 def send_message_to(chat_id, text, disable_preview=False):
-    """發送到單一 chat_id，並印出精簡結果（便於排錯、不會炸 log）。"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -64,16 +63,16 @@ def send_message_to(chat_id, text, disable_preview=False):
     }
     try:
         r = requests.post(url, data=payload, timeout=10)
-        ok = False
-        desc = ""
+
+        # ✅ 嘗試解析 Telegram 回應，並在 Logs 中印出詳細內容
         try:
-            j = r.json()
-            ok = j.get("ok", False)
-            desc = j.get("description", "")
+            resp = r.json()
         except Exception:
-            desc = r.text[:300]
-        if r.status_code != 200 or not ok:
-            print(f"[sendMessage] to {chat_id}: status={r.status_code}, ok={ok}, desc={desc}")
+            resp = {"raw": r.text}
+
+        # 🚨 關鍵：這行會在 Railway Logs 顯示 API 回應，幫我們找出問題
+        print(f"[DEBUG] send to {chat_id} -> status={r.status_code}, response={resp}")
+
     except Exception as e:
         print(f"發送錯誤 ({chat_id}): {e}")
 
