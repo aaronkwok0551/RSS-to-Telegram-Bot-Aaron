@@ -21,39 +21,29 @@ else:
 CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]  # 去重+過濾空值
 
 # 檔案
-SENT_FILE = "sent_urls_per_chat.json"   # << 改成每個 chat 獨立去重
+SENT_FILE = "sent_urls_per_chat.json"
 UPDATE_ID_FILE = "last_update_id.json"
 
 # ================== HTML 轉義 ==================
 def html_escape_text(s: str) -> str:
-    if not s:
-        return ""
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;"))
+    if not s: return ""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def html_escape_attr(s: str) -> str:
-    if not s:
-        return ""
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;")
-             .replace('"', "&quot;"))
+    if not s: return ""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 # ================== 載入/儲存 ==================
-# 結構：{"264588454": ["url1","url2",...], "8499232968": ["url3",...]}
 def load_sent_map():
     try:
         with open(SENT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # 轉成 set，便於判斷
             return {str(k): set(v) for k, v in data.items()}
     except Exception:
         return {}
 
 def save_sent_map(sent_map):
     try:
-        # 轉回 list 儲存
         serializable = {k: list(v) for k, v in sent_map.items()}
         with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False)
@@ -83,30 +73,28 @@ def ensure_chat_key(sent_map, chat_id):
 
 # ================== 純文字降級工具 ==================
 def strip_formatting_to_plain(s: str) -> str:
-    if not s:
-        return ""
-    s = re.sub(r"<[^>]+>", "", s)  # 去 HTML 標籤
-    return s
+    if not s: return ""
+    return re.sub(r"<[^>]+>", "", s)
 
 # ================== 發送（逐人 + 解析錯誤自動降級） ==================
-PRIMARY_PARSE_MODE = "HTML"  # HTML 最穩：粗體+可點連結
+PRIMARY_PARSE_MODE = "HTML"
 
 def send_message_to(chat_id, html_text, disable_preview=False):
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN 未設定")
-        return
+        return False
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     def _post(payload):
-        r = requests.post(url, data=payload, timeout=15)
         try:
+            r = requests.post(url, data=payload, timeout=15)
             j = r.json()
             return r.status_code, j.get("ok", False), j.get("description", "")
-        except Exception:
-            return r.status_code, False, r.text[:300]
+        except Exception as e:
+            return 0, False, str(e)
 
-    # 1) 以 HTML 嘗試
+    # 1) HTML 嘗試
     payload = {
         "chat_id": chat_id,
         "text": html_text,
@@ -115,169 +103,236 @@ def send_message_to(chat_id, html_text, disable_preview=False):
     }
     status, ok, desc = _post(payload)
 
-    # 2) 若 400（解析錯）→ 純文字補發一次
+    # 2) 400 錯誤降級
     if (not ok) and status == 400 and "parse entit" in (desc or "").lower():
+        print(f"⚠️ [Format Error] {chat_id}: {desc}, switching to plain text.")
         fallback_payload = {
             "chat_id": chat_id,
             "text": strip_formatting_to_plain(html_text),
             "disable_web_page_preview": disable_preview
         }
         status2, ok2, desc2 = _post(fallback_payload)
-        print(f"[fallback->plain] to {chat_id}: status={status2}, ok={ok2}, desc={desc2}")
-        if not ok2:
-            print(f"[primary failed] to {chat_id}: status={status}, ok={ok}, desc={desc}")
         return ok2
-    else:
-        if not ok:
-            print(f"[sendMessage] to {chat_id}: status={status}, ok={ok}, desc={desc}")
-        return ok
+    
+    if not ok:
+        print(f"❌ [Send Fail] {chat_id}: {desc}")
+    
+    return ok
 
 def send_message_all(html_text, disable_preview=False):
-    # 逐人發送，彼此間隔 0.2 秒，避免節流
-    results = {}
     for chat_id in CHAT_IDS:
-        ok = send_message_to(chat_id, html_text, disable_preview=disable_preview)
-        results[chat_id] = ok
+        send_message_to(chat_id, html_text, disable_preview=disable_preview)
         time.sleep(0.2)
-    return results
 
-# ================== 抓新聞並發送 ==================
+# ================== 資料擷取邏輯 ==================
+def fetch_feed_entries(source_label, rss_url):
+    """
+    統一回傳格式: list of tuples (raw_title, raw_link)
+    """
+    entries = []
+    
+    # --- 特別處理 HK01 (JSON API) ---
+    if source_label == "HK01":
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            resp = requests.get(rss_url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("items", [])
+                for item in items[:15]: # 取前15條
+                    try:
+                        # HK01 V2 API 結構通常在 data 裡面
+                        info = item.get("data", {})
+                        title = info.get("title", "")
+                        link = info.get("publishUrl", "")
+                        # 補全相對連結
+                        if link and not link.startswith("http"):
+                            link = f"https://www.hk01.com{link}"
+                        
+                        if title and link:
+                            entries.append((title, link))
+                    except Exception:
+                        continue
+        except Exception as e:
+            print(f"HK01 API 錯誤: {e}")
+        return entries
+
+    # --- 其他標準 RSS (Gov, RTHK, On.cc, MingPao, ST) ---
+    try:
+        # 明報或部分中文 RSS 可能有編碼問題，feedparser 通常能處理，但偶爾需強制
+        feed = feedparser.parse(rss_url)
+        
+        # 簡單檢查是否抓取成功
+        if not feed.entries and feed.bozo and "encoding" in str(feed.bozo_exception):
+             # 極端情況：如果 feedparser 因編碼失敗，可嘗試用 requests decode 後再 parse (這裡先略過，通常 Railway 環境 OK)
+             print(f"⚠️ RSS Encoding Warning: {source_label}")
+
+        for entry in feed.entries[:15]:
+            title = (getattr(entry, "title", "") or "").strip()
+            link = (getattr(entry, "link", "") or "").strip()
+            if title and link:
+                entries.append((title, link))
+    except Exception as e:
+        print(f"RSS 解析失敗：{source_label} - {e}")
+        
+    return entries
+
+# ================== 主邏輯：抓新聞並發送 ==================
 def fetch_and_send():
     tz = pytz.timezone("Asia/Hong_Kong")
     print("🔍 正在檢查新聞…", datetime.now(tz).strftime("%H:%M:%S"))
 
+    # 定義來源：(顯示名稱, URL, 模式[single|batch])
+    # single: 每一條新聞發送一個通知 (適合政府重要公報)
+    # batch:  累積成一張清單發送 (適合媒體新聞，避免洗版)
     sources = [
-        ("新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
-        ("RTHK",  "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
+        # 政府新聞
+        ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml", "single"),
+        
+        # 媒體 (Batch 模式)
+        ("📻 RTHK", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml", "batch"),
+        ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news", "batch"),
+        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0", "batch"),
+        ("🐯 星島", "https://www.stheadline.com/rss", "batch"),
+        ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml", "batch"),
     ]
 
-    for label, rss_url in sources:
+    for label, url, mode in sources:
         print(f"📡 檢查中：{label}")
-        try:
-            feed = feedparser.parse(rss_url)
-        except Exception as e:
-            print(f"RSS 解析失敗：{rss_url} - {e}")
+        items = fetch_feed_entries(label, url) # 取得標準化資料
+        
+        if not items:
             continue
 
-        # RTHK 批次
-        rthk_items = []
-
-        for entry in getattr(feed, "entries", [])[:10]:
-            raw_title = (getattr(entry, "title", "") or "").strip()
-            raw_link  = (getattr(entry, "link", "")  or "").strip()
-            if not raw_title or not raw_link:
-                continue
-
-            # HTML 轉義
-            title = html_escape_text(raw_title)
-            link  = html_escape_attr(raw_link)
-
-            # --- info.gov.hk：單則發送 ---
-            if "info.gov.hk" in rss_url:
-                # 先組訊息
+        # --- 模式 A: Single (單條發送) ---
+        if mode == "single":
+            for raw_title, raw_link in items:
+                title = html_escape_text(raw_title)
+                link = html_escape_attr(raw_link)
+                
                 html_msg = (
                     f"<b>{title}</b>\n"
                     f"<a href=\"{link}\">🔗 點此查看新聞</a>\n\n"
                     f"👉 <a href=\"https://www.isdnews.gov.hk/subscriber/loginpage\">GNMIS</a>"
                 )
 
-                # 對每個 chat_id 檢查是否已發過（逐人去重）
                 for chat_id in CHAT_IDS:
                     ensure_chat_key(SENT_MAP, chat_id)
                     if raw_link in SENT_MAP[chat_id]:
-                        continue  # 這個人已經發送過這條，跳過
-
+                        continue
+                    
                     ok = send_message_to(chat_id, html_msg, disable_preview=False)
                     if ok:
                         SENT_MAP[chat_id].add(raw_link)
                         save_sent_map(SENT_MAP)
                     time.sleep(0.2)
 
-            # --- RTHK：先收集，稍後批次發 ---
-            elif "rthk.hk" in rss_url:
-                rthk_items.append((raw_title, raw_link, title, link))
-
-        # RTHK 批次發送（每人各送一次；各自去重）
-        if rthk_items:
+        # --- 模式 B: Batch (摘要清單) ---
+        elif mode == "batch":
             for chat_id in CHAT_IDS:
                 ensure_chat_key(SENT_MAP, chat_id)
-
-                # 篩掉這個 chat 已經發過的連結，只把新的列進清單
-                lines = []
-                for i, (raw_title, raw_link, title, link) in enumerate(rthk_items, start=1):
+                
+                # 收集該用戶未讀的新聞
+                unsent_items = []
+                for raw_title, raw_link in items:
                     if raw_link in SENT_MAP[chat_id]:
                         continue
-                    # 用序號+超連結
-                    lines.append(f"{i}. <a href=\"{link}\">{title}</a>")
+                    unsent_items.append((raw_title, raw_link))
+                
+                # 如果沒有新新聞，跳過該用戶
+                if not unsent_items:
+                    continue
 
-                if lines:
-                    header = "<b>📻 RTHK 新聞摘要：</b>\n"
-                    html_msg = header + "\n".join(lines)
+                # 為了避免摘要過長，限制最多顯示 8 條 (多的忽略，避免 Telegram 限制)
+                display_items = unsent_items[:8]
 
-                    ok = send_message_to(chat_id, html_msg, disable_preview=True)
-                    if ok:
-                        # 把此次發出的每一條都記錄到這個 chat 的已發清單
-                        for _, raw_link, _, _ in rthk_items:
-                            SENT_MAP[chat_id].add(raw_link)
-                        save_sent_map(SENT_MAP)
-                    time.sleep(0.2)
-
-    # 每天 12:00 報平安
-    now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-    if now.strftime("%H:%M") == "12:00":
-        send_message_all("<b>✅ 我還活著，請放心！</b>", disable_preview=True)
+                # 組合訊息
+                lines = []
+                for i, (rt, rl) in enumerate(display_items, start=1):
+                    # 轉義
+                    t_esc = html_escape_text(rt)
+                    l_esc = html_escape_attr(rl)
+                    lines.append(f"{i}. <a href=\"{l_esc}\">{t_esc}</a>")
+                
+                header = f"<b>{label} 最新消息：</b>\n"
+                html_msg = header + "\n".join(lines)
+                
+                ok = send_message_to(chat_id, html_msg, disable_preview=True)
+                
+                if ok:
+                    # 將本次所有檢查到的連結 (含超過8條未顯示的) 都標記為已讀，避免下次重複跳出
+                    for _, rl in unsent_items:
+                        SENT_MAP[chat_id].add(rl)
+                    save_sent_map(SENT_MAP)
+                
+                time.sleep(0.5) # Batch 之間稍微多停一點
 
 # ================== /clear 指令 ==================
 def check_clear_command():
     global LAST_UPDATE_ID, SENT_MAP
-    if not BOT_TOKEN:
-        return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    if not BOT_TOKEN: return
+    
     try:
-        response = requests.get(url, timeout=20).json()
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+        # 加上 offset 避免重複讀取舊訊息
+        params = {"offset": LAST_UPDATE_ID + 1, "timeout": 10}
+        resp = requests.get(url, params=params, timeout=20)
+        data = resp.json()
     except Exception as e:
-        print(f"取得更新時發生錯誤: {e}")
+        print(f"Update Check Error: {e}")
         return
 
-    for update in response.get("result", []):
+    if not data.get("ok"): return
+
+    for update in data.get("result", []):
         update_id = update.get("update_id")
-        if update_id is None or (isinstance(LAST_UPDATE_ID, int) and update_id <= LAST_UPDATE_ID):
-            continue
-
-        message_obj = update.get("message") or {}
-        text = (message_obj.get("text") or "").strip()
-        chat = message_obj.get("chat") or {}
-        chat_id = str(chat.get("id")) if chat.get("id") is not None else None
-
+        LAST_UPDATE_ID = update_id
+        
+        message = update.get("message", {})
+        text = message.get("text", "").strip()
+        chat_id = str(message.get("chat", {}).get("id", ""))
+        
         if text == "/clear":
-            # 清掉所有 chat 的發送紀錄
             SENT_MAP = {}
             save_sent_map(SENT_MAP)
-            send_message_to(chat_id, "<b>🧹 已清空已發送紀錄</b>", disable_preview=True)
-
-        LAST_UPDATE_ID = update_id
-        save_last_update_id(LAST_UPDATE_ID)
+            if chat_id:
+                send_message_to(chat_id, "<b>🧹 已清空已發送紀錄 (Reset History)</b>", disable_preview=True)
+                
+    save_last_update_id(LAST_UPDATE_ID)
 
 # ================== 主流程 ==================
 def main_loop():
     if not BOT_TOKEN:
-        print("❌ 未設定 BOT_TOKEN。")
+        print("❌ 未設定 BOT_TOKEN")
         return
     if not CHAT_IDS:
-        print("❌ 沒有任何接收 ID。請在 Railway 設定 CHAT_IDS（或 CHAT_ID）。")
+        print("❌ 未設定 CHAT_IDS")
         return
 
-    print(f"✅ 已啟動，會發送到以下 ID：{', '.join(CHAT_IDS)}")
+    print(f"✅ 監控啟動: {', '.join(CHAT_IDS)}")
 
     while True:
-        hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-        within_mins = (
-            (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and
-            (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15))
-        )
-        if within_mins:
-            check_clear_command()
-            fetch_and_send()
+        try:
+            hk_time = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+            # 時間範圍：早上 08:30 ~ 凌晨 00:15
+            is_active_time = (
+                (hk_time.hour > 8 or (hk_time.hour == 8 and hk_time.minute >= 30)) and
+                (hk_time.hour < 24 or (hk_time.hour == 0 and hk_time.minute <= 15))
+            )
+            
+            if is_active_time:
+                check_clear_command()
+                fetch_and_send()
+            
+            # 報平安 (每日 12:00)
+            if is_active_time and hk_time.strftime("%H:%M") == "12:00":
+                send_message_all("<b>✅ System Alive</b>", disable_preview=True)
+                time.sleep(60) # 避免重複發送
+                
+        except Exception as e:
+            print(f"Main Loop Error: {e}")
+            time.sleep(5)
+
         time.sleep(60)
 
 if __name__ == "__main__":
