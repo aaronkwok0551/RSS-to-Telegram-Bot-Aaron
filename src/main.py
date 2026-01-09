@@ -149,6 +149,7 @@ def process_grouped_news():
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
+        ("🐯nowTV", "https://newsapi1.now.com/pccw-news-api/api/getNewsListv2?category=119&pageNo=1")
     ]
     
     fetched = {label: fetch_feed_entries(label, url) for label, url in group_sources}
