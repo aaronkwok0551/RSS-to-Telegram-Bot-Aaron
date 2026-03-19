@@ -175,7 +175,9 @@ def process_grouped_news():
         # 你新製作的三個 RSS
         ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("📜 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
-        ("🔵 點新聞", "https://politepaul.com/fd/59PndwU1mb82.xml")
+        ("📜 文匯即時新聞", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
+        ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
+        ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml")
     ]
     
     fetched = {}
