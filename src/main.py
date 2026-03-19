@@ -21,7 +21,7 @@ else:
 CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
 
 SENT_FILE = "sent_urls_per_chat.json"
-MAX_SENT_CACHE = 500  # 每個群組最多保存 500 條紀錄，防止 JSON 無限變大
+MAX_SENT_CACHE = 500  # 每個群組最多保存 500 條紀錄
 
 # ================== 2. 工具函數 ==================
 def html_escape_text(s: str) -> str:
@@ -60,7 +60,7 @@ def save_sent_map(sent_map):
     try:
         serializable = {}
         for k, v in sent_map.items():
-            # 自動清理：只保留最近的 500 條，防止數據膨脹
+            # 自動清理舊數據
             v_list = list(v)
             if len(v_list) > MAX_SENT_CACHE:
                 v_list = v_list[-MAX_SENT_CACHE:]
@@ -134,7 +134,7 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e:
             print(f"NowTV Error: {e}")
 
-    # --- 分支 C: 標準 RSS (包含 PolitePol 補全) ---
+    # --- 分支 C: 標準 RSS (包含所有 PolitePol 補全) ---
     else:
         try:
             feed = feedparser.parse(rss_url)
@@ -142,16 +142,20 @@ def fetch_feed_entries(source_label, rss_url):
                 title = (getattr(entry, "title", "") or "").strip()
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
                 
-                # 自動補全域名邏輯 (針對 PolitePol)
+                # 自動補全域名邏輯
                 if link.startswith("/"):
                     if "politepaul.com" in rss_url:
-                        if "KZGhq" in rss_url: # 橙新聞
+                        # 🍊 橙新聞 (包含政經講場 ID: 8fzf6zR)
+                        if "KZGhq" in rss_url or "8fzf6zR" in rss_url:
                             link = f"https://www.orangenews.hk{link}"
-                        elif "6oljXv" in rss_url or "C499xnj" in rss_url: # 文匯報
+                        # 📜 文匯報
+                        elif "6oljXv" in rss_url or "C499xnj" in rss_url:
                             link = f"https://www.wenweipo.com{link}"
-                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: # 點新聞
+                        # 🔵 點新聞
+                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url:
                             link = f"https://www.dotdotnews.com{link}"
-                        elif "4xPuKWS" in rss_url: # 🔵 商業電台
+                        # 🔵 商業電台
+                        elif "4xPuKWS" in rss_url:
                             link = f"https://www.881903.com{link}"
                 
                 link = clean_url(link)
@@ -191,6 +195,7 @@ def process_grouped_news():
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
         ("🐯 nowTV", "https://newsapi1.now.com/pccw-news-api/api/getNewsListv2?category=119&pageNo=1"),
         ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
+        ("🍊 政經講場", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"), # <-- 新加入
         ("📜 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
@@ -210,6 +215,7 @@ def process_grouped_news():
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
+                # 每個來源最多顯示 4 條，避免消息過長
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
@@ -224,19 +230,18 @@ def process_grouped_news():
 
 # ================== 7. 主循環 ==================
 def main_loop():
-    print(f"✅ News Bot 啟動成功，當前監控：{len(CHAT_IDS)} 個頻道")
+    print(f"✅ News Bot 啟動成功，監控中...")
     loop_count = 0
     while True:
         try:
             hk_now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-            # 活躍時間：早上 8 點 到 凌晨 0 點 15 分
             is_active_time = (
                 (hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15)
             )
 
             if is_active_time:
                 process_priority_news()
-                # 每 6 個循環（即 6 分鐘）發送一次綜合快訊
+                # 每 6 分鐘發送一次綜合報
                 if loop_count % 6 == 0:
                     process_grouped_news()
             
