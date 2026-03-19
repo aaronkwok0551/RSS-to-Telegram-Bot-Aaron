@@ -21,6 +21,7 @@ else:
 CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
 
 SENT_FILE = "sent_urls_per_chat.json"
+MAX_SENT_CACHE = 500  # 每個群組最多保存 500 條紀錄，防止 JSON 無限變大
 
 # ================== 2. 工具函數 ==================
 def html_escape_text(s: str) -> str:
@@ -28,10 +29,16 @@ def html_escape_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def clean_url(url: str) -> str:
-    """處理網址：去除空格、處理中文，並去掉 ? 之後的統計參數以防重複推送"""
+    """處理網址：修正 NowTV 參數問題，並處理去重邏輯"""
     if not url: return ""
     url = url.strip()
-    url = url.split('?')[0] # 去掉參數，確保去重精準
+    
+    # 特殊處理：nowTV 的網址必須保留 ?newsId= 參數，否則打不開
+    if "news.now.com" in url:
+        return quote(url, safe=":/%?=&")
+    
+    # 其他媒體：去掉 ? 之後的統計參數，確保去重精準
+    url = url.split('?')[0] 
     return quote(url, safe=":/%?=&")
 
 def strip_formatting_to_plain(s: str) -> str:
@@ -41,15 +48,24 @@ def strip_formatting_to_plain(s: str) -> str:
 # ================== 3. 數據持久化 ==================
 def load_sent_map():
     try:
-        with open(SENT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return {str(k): set(v) for k, v in data.items()}
+        if os.path.exists(SENT_FILE):
+            with open(SENT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return {str(k): set(v) for k, v in data.items()}
     except Exception:
-        return {}
+        pass
+    return {}
 
 def save_sent_map(sent_map):
     try:
-        serializable = {k: list(v) for k, v in sent_map.items()}
+        serializable = {}
+        for k, v in sent_map.items():
+            # 自動清理：只保留最近的 500 條，防止數據膨脹
+            v_list = list(v)
+            if len(v_list) > MAX_SENT_CACHE:
+                v_list = v_list[-MAX_SENT_CACHE:]
+            serializable[k] = v_list
+            
         with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False)
     except Exception as e:
@@ -118,7 +134,7 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e:
             print(f"NowTV Error: {e}")
 
-    # --- 分支 C: 標準 RSS (RTHK, 明報, 星島, On.cc + 橙新聞, 文匯, 點新聞) ---
+    # --- 分支 C: 標準 RSS (包含 PolitePol 補全) ---
     else:
         try:
             feed = feedparser.parse(rss_url)
@@ -126,15 +142,17 @@ def fetch_feed_entries(source_label, rss_url):
                 title = (getattr(entry, "title", "") or "").strip()
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
                 
-                # 自動補全域名邏輯
+                # 自動補全域名邏輯 (針對 PolitePol)
                 if link.startswith("/"):
-                    if "politepaul.com" in rss_url: # 來自你的 PolitePol
-                        if "KZGhq" in rss_url: # 橙新聞 ID
+                    if "politepaul.com" in rss_url:
+                        if "KZGhq" in rss_url: # 橙新聞
                             link = f"https://www.orangenews.hk{link}"
-                        elif "6oljXv" in rss_url: # 文匯報 ID
+                        elif "6oljXv" in rss_url or "C499xnj" in rss_url: # 文匯報
                             link = f"https://www.wenweipo.com{link}"
-                        elif "59Pndw" in rss_url: # 點新聞 ID
+                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: # 點新聞
                             link = f"https://www.dotdotnews.com{link}"
+                        elif "4xPuKWS" in rss_url: # 🔵 商業電台
+                            link = f"https://www.881903.com{link}"
                 
                 link = clean_url(link)
                 if title and link.startswith("http"):
@@ -149,9 +167,9 @@ def fetch_feed_entries(source_label, rss_url):
 def process_priority_news():
     """優先新聞：政府新聞稿"""
     sources = [
-        ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml", "single"),
+        ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
     ]
-    for label, url, mode in sources:
+    for label, url in sources:
         items = fetch_feed_entries(label, url)
         if not items: continue
         for chat_id in CHAT_IDS:
@@ -165,19 +183,19 @@ def process_priority_news():
             save_sent_map(SENT_MAP)
 
 def process_grouped_news():
-    """每 6 分鐘執行：整合所有評論與商業媒體"""
+    """每 6 分鐘執行：整合所有媒體快訊"""
     group_sources = [
         ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
         ("🐯 nowTV", "https://newsapi1.now.com/pccw-news-api/api/getNewsListv2?category=119&pageNo=1"),
-        # 你新製作的三個 RSS
         ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("📜 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
-        ("📜 文匯即時新聞", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
+        ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
-        ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml")
+        ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
+        ("🔵 商台即時", "https://politepaul.com/fd/4xPuKWS07tJs.xml")
     ]
     
     fetched = {}
@@ -206,23 +224,25 @@ def process_grouped_news():
 
 # ================== 7. 主循環 ==================
 def main_loop():
-    print(f"✅ News Bot 啟動成功，每 6 分鐘掃描一次")
+    print(f"✅ News Bot 啟動成功，當前監控：{len(CHAT_IDS)} 個頻道")
     loop_count = 0
     while True:
         try:
             hk_now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+            # 活躍時間：早上 8 點 到 凌晨 0 點 15 分
             is_active_time = (
                 (hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15)
             )
 
             if is_active_time:
                 process_priority_news()
+                # 每 6 個循環（即 6 分鐘）發送一次綜合快訊
                 if loop_count % 6 == 0:
                     process_grouped_news()
             
             loop_count += 1
         except Exception as e:
-            print(f"❌ Exception: {e}")
+            print(f"❌ 循環錯誤: {e}")
         
         time.sleep(60)
 
