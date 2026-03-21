@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import time
 import json
@@ -7,6 +8,7 @@ from datetime import datetime
 import pytz
 import re
 from urllib.parse import quote
+import html
 
 # ================== 1. 基本設定 ==================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -25,19 +27,33 @@ MAX_SENT_CACHE = 500  # 每個群組最多保存 500 條紀錄
 
 # ================== 2. 工具函數 ==================
 def html_escape_text(s: str) -> str:
+    """防止 Telegram 因為特殊字元解析失敗"""
     if not s: return ""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+def clean_title_simple(s: str) -> str:
+    """強力清洗：移除 HTML 標籤及 Now 新聞的時間後綴"""
+    if not s: return ""
+    # 移除 HTML 標籤
+    s = re.sub(r"<[^>]+>", "", s)
+    # 移除「XX分鐘前」字眼
+    s = re.sub(r'\d+(分鐘|小時|天)前.*', '', s)
+    return html.unescape(s).strip()
+
 def clean_url(url: str) -> str:
-    """處理網址：修正 NowTV 參數問題，並處理去重邏輯"""
+    """處理網址：修正 NowTV 與信報的域名問題"""
     if not url: return ""
     url = url.strip()
     
-    # 特殊處理：nowTV 的網址必須保留 ?newsId= 參數，否則打不開
+    # 修正信報域名：由 m.hkej.com 轉為 www.hkej.com
+    if "hkej.com" in url:
+        url = url.replace("m.hkej.com", "www.hkej.com").replace("++", "")
+
+    # nowTV 必須保留參數
     if "news.now.com" in url:
         return quote(url, safe=":/%?=&")
     
-    # 其他媒體：去掉 ? 之後的統計參數，確保去重精準
+    # 其他媒體去掉統計參數
     url = url.split('?')[0] 
     return quote(url, safe=":/%?=&")
 
@@ -52,8 +68,7 @@ def load_sent_map():
             with open(SENT_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return {str(k): set(v) for k, v in data.items()}
-    except Exception:
-        pass
+    except Exception: pass
     return {}
 
 def save_sent_map(sent_map):
@@ -64,7 +79,6 @@ def save_sent_map(sent_map):
             if len(v_list) > MAX_SENT_CACHE:
                 v_list = v_list[-MAX_SENT_CACHE:]
             serializable[k] = v_list
-            
         with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False)
     except Exception as e:
@@ -88,6 +102,7 @@ def send_message_to(chat_id, html_text, disable_preview=False):
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
+        # 如果 HTML 解析失敗 (code 400)，嘗試發送純文本
         if r.status_code == 400: 
             payload["text"] = strip_formatting_to_plain(html_text)
             payload.pop("parse_mode", None)
@@ -101,67 +116,42 @@ def send_message_to(chat_id, html_text, disable_preview=False):
 def fetch_feed_entries(source_label, rss_url):
     entries = []
     
-    # --- 分支 A: HK01 ---
+    # --- 分支 A: HK01 (API) ---
     if source_label == "📰 HK01":
         try:
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             if resp.status_code == 200:
                 for item in resp.json().get("items", [])[:15]:
                     info = item.get("data", {})
-                    title = info.get("title", "")
+                    title = clean_title_simple(info.get("title", ""))
                     link = info.get("publishUrl", "")
                     if link and not link.startswith("http"):
                         link = f"https://www.hk01.com{link}"
                     if title and link:
                         entries.append((title, clean_url(link)))
-        except Exception as e:
-            print(f"HK01 Error: {e}")
+        except Exception: pass
 
-    # --- 分支 B: NowTV ---
-    elif source_label == "🐯nowTV":
-        try:
-            resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list):
-                    for item in data[:15]:
-                        title = item.get("title", "")
-                        news_id = item.get("newsId", "")
-                        if title and news_id:
-                            link = f"https://news.now.com/home/local/player?newsId={news_id}"
-                            entries.append((title, clean_url(link)))
-        except Exception as e:
-            print(f"NowTV Error: {e}")
-
-    # --- 分支 C: 標準 RSS (包含 PolitePol 域名補全) ---
+    # --- 分支 B: 標準 RSS (包含 NowTV 與 PolitePol 域名補全) ---
     else:
         try:
-            feed = feedparser.parse(rss_url)
+            # 加入 verify=False 處理 SSL 問題
+            r = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+            feed = feedparser.parse(r.content)
             for entry in feed.entries[:15]:
-                title = (getattr(entry, "title", "") or "").strip()
+                # 抓取標題並清洗 HTML
+                title = clean_title_simple(getattr(entry, "title", ""))
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
                 
                 # 自動補全域名邏輯
                 if link.startswith("/"):
-                    if "politepaul.com" in rss_url:
-                        # 📺 有線新聞
-                        if "7vsPHGi1tzC9" in rss_url:
-                            link = f"https://www.i-cable.com{link}"
-                        # 📜 信報手機版
-                        elif "tBTzOcfkQWzF" in rss_url:
-                            link = f"https://m.hkej.com{link}"
-                        # 🟢 TOPick (ET online)
-                        elif "X5o1ke3uTiH3" in rss_url:
-                            link = f"https://topick.hket.com{link}"
-                        # 📜 文匯報
-                        elif "6oljXv" in rss_url or "C499xnj" in rss_url:
-                            link = f"https://www.wenweipo.com{link}"
-                        # 🔵 點新聞
-                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url:
-                            link = f"https://www.dotdotnews.com{link}"
-                        # 🍊 橙新聞
-                        elif "KZGhq" in rss_url or "8fzf6zR" in rss_url:
-                            link = f"https://www.orangenews.hk{link}"
+                    if "4xPuKWS" in rss_url: link = f"https://www.881903.com{link}"
+                    elif "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
+                    elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
+                    elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
+                    elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}" # <-- Now 新聞補全
+                    elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
+                    elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
+                    elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
                 
                 link = clean_url(link)
                 if title and link.startswith("http"):
@@ -192,16 +182,16 @@ def process_priority_news():
             save_sent_map(SENT_MAP)
 
 def process_grouped_news():
-    """每 6 分鐘執行：整合所有媒體快訊"""
+    """每 6 分鐘整合發送一次"""
     group_sources = [
         ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
-        ("🐯 nowTV", "https://newsapi1.now.com/pccw-news-api/api/getNewsListv2?category=119&pageNo=1"),
-        ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"), # <-- 新加入
-        ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),     # <-- 新加入
-        ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),    # <-- 新加入
+        ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"), # <-- 已更新為 RSS
+        ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
+        ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
+        ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),
         ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
@@ -220,7 +210,6 @@ def process_grouped_news():
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
-                # 每個來源最多顯示 4 條
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
@@ -240,14 +229,10 @@ def main_loop():
     while True:
         try:
             hk_now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
-            # 活躍時間設定
-            is_active_time = (
-                (hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15)
-            )
+            is_active_time = ((hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15))
 
             if is_active_time:
                 process_priority_news()
-                # 每 6 圈 (約 6 分鐘) 執行一次綜合報
                 if loop_count % 6 == 0:
                     process_grouped_news()
             
