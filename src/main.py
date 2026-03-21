@@ -60,7 +60,6 @@ def save_sent_map(sent_map):
     try:
         serializable = {}
         for k, v in sent_map.items():
-            # 自動清理舊數據
             v_list = list(v)
             if len(v_list) > MAX_SENT_CACHE:
                 v_list = v_list[-MAX_SENT_CACHE:]
@@ -134,7 +133,7 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e:
             print(f"NowTV Error: {e}")
 
-    # --- 分支 C: 標準 RSS (包含所有 PolitePol 補全) ---
+    # --- 分支 C: 標準 RSS (包含 PolitePol 域名補全) ---
     else:
         try:
             feed = feedparser.parse(rss_url)
@@ -145,18 +144,24 @@ def fetch_feed_entries(source_label, rss_url):
                 # 自動補全域名邏輯
                 if link.startswith("/"):
                     if "politepaul.com" in rss_url:
-                        # 🍊 橙新聞 (包含政經講場 ID: 8fzf6zR)
-                        if "KZGhq" in rss_url or "8fzf6zR" in rss_url:
-                            link = f"https://www.orangenews.hk{link}"
+                        # 📺 有線新聞
+                        if "7vsPHGi1tzC9" in rss_url:
+                            link = f"https://www.i-cable.com{link}"
+                        # 📜 信報手機版
+                        elif "tBTzOcfkQWzF" in rss_url:
+                            link = f"https://m.hkej.com{link}"
+                        # 🟢 TOPick (ET online)
+                        elif "X5o1ke3uTiH3" in rss_url:
+                            link = f"https://topick.hket.com{link}"
                         # 📜 文匯報
                         elif "6oljXv" in rss_url or "C499xnj" in rss_url:
                             link = f"https://www.wenweipo.com{link}"
                         # 🔵 點新聞
                         elif "59Pndw" in rss_url or "xbfGvXW" in rss_url:
                             link = f"https://www.dotdotnews.com{link}"
-                        # 🔵 商業電台
-                        elif "4xPuKWS" in rss_url:
-                            link = f"https://www.881903.com{link}"
+                        # 🍊 橙新聞
+                        elif "KZGhq" in rss_url or "8fzf6zR" in rss_url:
+                            link = f"https://www.orangenews.hk{link}"
                 
                 link = clean_url(link)
                 if title and link.startswith("http"):
@@ -194,11 +199,11 @@ def process_grouped_news():
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
         ("🐯 nowTV", "https://newsapi1.now.com/pccw-news-api/api/getNewsListv2?category=119&pageNo=1"),
+        ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"), # <-- 新加入
+        ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),     # <-- 新加入
+        ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),    # <-- 新加入
         ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
-        ("🍊 政經講場", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"), # <-- 新加入
-        ("📜 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
-        ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
         ("🔵 商台即時", "https://politepaul.com/fd/4xPuKWS07tJs.xml")
     ]
@@ -215,14 +220,14 @@ def process_grouped_news():
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
-                # 每個來源最多顯示 4 條，避免消息過長
+                # 每個來源最多顯示 4 條
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
                 all_new_links.extend([it[1] for it in unsent])
 
         if sections:
-            full_msg = "<b>📰 綜合媒體評論快訊</b>\n\n" + "\n\n".join(sections)
+            full_msg = "<b>📰 綜合媒體快訊 (6min)</b>\n\n" + "\n\n".join(sections)
             if send_message_to(chat_id, full_msg, disable_preview=True):
                 for link in all_new_links:
                     SENT_MAP[chat_id].add(link)
@@ -235,13 +240,14 @@ def main_loop():
     while True:
         try:
             hk_now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
+            # 活躍時間設定
             is_active_time = (
                 (hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15)
             )
 
             if is_active_time:
                 process_priority_news()
-                # 每 6 分鐘發送一次綜合報
+                # 每 6 圈 (約 6 分鐘) 執行一次綜合報
                 if loop_count % 6 == 0:
                     process_grouped_news()
             
