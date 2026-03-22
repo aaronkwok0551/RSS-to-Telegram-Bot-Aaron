@@ -31,14 +31,16 @@ MAX_SENT_CACHE = 500  # 每個群組最多保存 500 條紀錄
 
 # ================== 2. 工具函數 ==================
 def html_escape_text(s: str) -> str:
+    """清理特殊字元，確保 HTML 解析不會出錯"""
     if not s: return ""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def clean_title_simple(s: str) -> str:
+    """標題清洗邏輯"""
     if not s: return ""
     s = re.sub(r"<[^>]+>", "", str(s))
     s = html.unescape(s)
-    # 移除時間、商報雜質、Now 尾綴
+    # 移除時間、商報雜質
     s = re.sub(r'\s*\d+(分鐘|小時|天)前.*', '', s)
     s = s.replace("分享", "")
     s = re.sub(r'\d{4}-\d{2}-\d{2}', '', s)
@@ -100,6 +102,7 @@ def send_message_to(chat_id, html_text, disable_preview=False):
     }
     try:
         r = requests.post(url, data=payload, timeout=15)
+        # 如果因為 HTML 標籤格式錯誤 (400)，嘗試發送純文本版
         if r.status_code == 400: 
             payload["text"] = strip_formatting_to_plain(html_text)
             payload.pop("parse_mode", None)
@@ -109,7 +112,7 @@ def send_message_to(chat_id, html_text, disable_preview=False):
         print(f"Send Error: {e}")
         return False
 
-# ================== 5. 抓取與域名補全邏輯 ==================
+# ================== 5. 抓取邏輯 ==================
 def fetch_feed_entries(source_label, rss_url):
     entries = []
     if source_label == "📰 HK01":
@@ -132,6 +135,7 @@ def fetch_feed_entries(source_label, rss_url):
             for entry in feed.entries[:15]:
                 title = clean_title_simple(getattr(entry, "title", ""))
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
+                # 補全連結
                 if link.startswith("/"):
                     if "4xPuKWS" in rss_url: link = f"https://www.881903.com{link}"
                     elif "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
@@ -152,7 +156,7 @@ def fetch_feed_entries(source_label, rss_url):
 # ================== 6. 核心業務邏輯 ==================
 
 def process_priority_news():
-    """【每 1 分鐘執行】新聞稿(有預覽) & RTHK(無預覽)"""
+    """【每 1 分鐘執行】核心優先：政府新聞稿(有預覽) & RTHK(無預覽)"""
     sources = [
         ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("📻 RTHK 電台", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
@@ -168,8 +172,18 @@ def process_priority_news():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if not unsent: continue
             
-            for rt, rl in unsent:
-                # 合併標題與連結
+            # 如果超過一條新消息，使用列表格式
+            if len(unsent) > 1:
+                lines = [f"<b>{label} (新消息)</b>"]
+                for rt, rl in unsent:
+                    lines.append(f"• <a href=\"{rl}\">{html_escape_text(rt)}</a>")
+                msg = "\n".join(lines)
+                if send_message_to(chat_id, msg, disable_preview=is_rthk):
+                    for _, rl in unsent:
+                        SENT_MAP[chat_id].add(rl)
+            else:
+                # 只有一條消息時
+                rt, rl = unsent[0]
                 msg = f"• <a href=\"{rl}\"><b>[{label}] {html_escape_text(rt)}</b></a>"
                 if send_message_to(chat_id, msg, disable_preview=is_rthk):
                     SENT_MAP[chat_id].add(rl)
@@ -207,7 +221,7 @@ def process_grouped_news():
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
-                # 標題合併連結
+                # 這裡修正了 Hyperlink：確保標籤正確閉合
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
