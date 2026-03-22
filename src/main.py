@@ -12,7 +12,6 @@ import html
 import urllib3
 
 # ================== 0. 系統優化 ==================
-# 忽略 SSL 警告 (部分舊媒體 RSS 證書過期)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================== 1. 基本設定 ==================
@@ -39,9 +38,8 @@ def clean_title_simple(s: str) -> str:
     if not s: return ""
     s = re.sub(r"<[^>]+>", "", str(s))
     s = html.unescape(s)
-    # 移除時間後綴
+    # 移除時間、商報雜質、Now 尾綴
     s = re.sub(r'\s*\d+(分鐘|小時|天)前.*', '', s)
-    # 商報清洗
     s = s.replace("分享", "")
     s = re.sub(r'\d{4}-\d{2}-\d{2}', '', s)
     s = re.sub(r'\s*\d{1,2}:\d{2}$', '', s.strip())
@@ -140,7 +138,7 @@ def fetch_feed_entries(source_label, rss_url):
                     elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
                     elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
                     elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
-                    elif "hkcd" in rss_url or "Pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
+                    elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
                     elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
                     elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
                     elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
@@ -154,7 +152,7 @@ def fetch_feed_entries(source_label, rss_url):
 # ================== 6. 核心業務邏輯 ==================
 
 def process_priority_news():
-    """【每 1 分鐘執行】核心優先：政府新聞稿 & RTHK"""
+    """【每 1 分鐘執行】新聞稿(有預覽) & RTHK(無預覽)"""
     sources = [
         ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("📻 RTHK 電台", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
@@ -163,7 +161,6 @@ def process_priority_news():
         items = fetch_feed_entries(label, url)
         if not items: continue
         
-        # 判斷是否為 RTHK，如果是則關閉預覽
         is_rthk = (label == "📻 RTHK 電台")
         
         for chat_id in CHAT_IDS:
@@ -172,25 +169,26 @@ def process_priority_news():
             if not unsent: continue
             
             for rt, rl in unsent:
-                msg = f"<b>[{label}] {html_escape_text(rt)}</b>\n<a href=\"{rl}\">🔗 查看詳情</a>"
+                # 合併標題與連結
+                msg = f"• <a href=\"{rl}\"><b>[{label}] {html_escape_text(rt)}</b></a>"
                 if send_message_to(chat_id, msg, disable_preview=is_rthk):
                     SENT_MAP[chat_id].add(rl)
             save_sent_map(SENT_MAP)
 
 def process_grouped_news():
-    """【每 6 分鐘執行一次】大眾媒體綜合整合報"""
+    """【每 6 分鐘執行一次】16 組媒體整合報"""
     group_sources = [
         ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
-        ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"), 
+        ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
         ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),
         ("📜 商報評論", "https://politepaul.com/fd/GO5FgkDR2gmP.xml"),
-        ("🍊 橙新聞", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
-        ("🍊 橙新聞", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"),
+        ("🍊 橙新聞即時", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
+        ("🍊 橙新聞專欄", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"),
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
@@ -209,6 +207,7 @@ def process_grouped_news():
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
+                # 標題合併連結
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
