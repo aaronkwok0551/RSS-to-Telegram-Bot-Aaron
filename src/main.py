@@ -225,7 +225,7 @@ def process_grouped_news():
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
-        ("🔵 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml")
+        ("🔵 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
         ("🔵 商台即時", "https://politepaul.com/fd/4xPuKWS07tJs.xml")
     ]
     
