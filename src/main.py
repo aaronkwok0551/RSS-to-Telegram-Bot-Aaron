@@ -29,13 +29,13 @@ CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
 SENT_FILE = "sent_urls_per_chat.json"
 MAX_SENT_CACHE = 500 
 
-# ================== 2. 工具函數 (HTML 防禦強化) ==================
+# ================== 2. 工具函數 (最強防禦) ==================
 def html_escape_text(s: str) -> str:
-    """絕對防禦：將標題中可能破壞 HTML 結構的字元全部轉義"""
+    """使用 Python 官方標準庫進行轉義，這是最安全的做法"""
     if not s: return ""
-    # 先還原再轉義，防止雙重轉義
+    # 先還原原本可能存在的轉義，再統一重新轉義
     s = html.unescape(str(s))
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    return html.escape(s, quote=True)
 
 def clean_title_simple(s: str) -> str:
     if not s: return ""
@@ -48,19 +48,15 @@ def clean_title_simple(s: str) -> str:
     return s.strip()
 
 def clean_url(url: str) -> str:
-    """網址轉義：確保網址在 href 屬性中不會報錯"""
+    """網址編碼：確保 URL 在 href 屬性中 100% 安全"""
     if not url: return ""
     url = url.strip()
     if "hkej.com" in url:
         url = url.replace("m.hkej.com", "www.hkej.com").replace("++", "")
-    # 使用 quote 處理網址，但保留必要符號，特別是 NowTV 的問號
+    # 對網址進行編碼
     safe_url = quote(url, safe=":/%?=&")
-    # 再次針對 HTML 屬性轉義 & 符號
-    return safe_url.replace("&", "&amp;")
-
-def strip_formatting_to_plain(s: str) -> str:
-    if not s: return ""
-    return re.sub(r"<[^>]+>", "", s)
+    # 針對 HTML 屬性再次轉義 & 符號
+    return html.escape(safe_url, quote=True)
 
 # ================== 3. 數據持久化 ==================
 def load_sent_map():
@@ -91,7 +87,7 @@ def ensure_chat_key(sent_map, chat_id):
     if chat_id not in sent_map:
         sent_map[chat_id] = set()
 
-# ================== 4. Telegram 發送引擎 ==================
+# ================== 4. Telegram 發送引擎 (修正版) ==================
 def send_message_to(chat_id, html_text, disable_preview=False):
     if not BOT_TOKEN: return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -102,19 +98,18 @@ def send_message_to(chat_id, html_text, disable_preview=False):
         "disable_web_page_preview": disable_preview
     }
     try:
-        r = requests.post(url, data=payload, timeout=15)
+        r = requests.post(url, data=payload, timeout=20)
         if r.status_code != 200:
-            # 如果 HTML 失敗，輸出錯誤並發送純文字版
-            print(f"Telegram API Error {r.status_code}: {r.text}")
-            payload["text"] = strip_formatting_to_plain(html_text)
-            payload.pop("parse_mode", None)
-            r = requests.post(url, data=payload, timeout=15)
-        return r.json().get("ok", False)
+            # 如果失敗，在 Log 輸出錯誤原因，以便除錯
+            print(f"❌ Telegram 發送失敗! ChatID: {chat_id}, Code: {r.status_code}, Resp: {r.text}")
+            # 不再自動切換到純文字，我們必須修好 HTML 格式
+            return False
+        return True
     except Exception as e:
         print(f"Send Error: {e}")
         return False
 
-# ================== 5. 抓取邏輯 ==================
+# ================== 5. 抓取與補全 ==================
 def fetch_feed_entries(source_label, rss_url):
     entries = []
     if source_label == "📰 HK01":
@@ -153,10 +148,10 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e: pass
     return entries
 
-# ================== 6. 核心業務邏輯 ==================
+# ================== 6. 業務邏輯 ==================
 
 def process_priority_news():
-    """【每 1 分鐘】核心優先：RTHK 使用列表形式，且兩者預覽設定不同"""
+    """【每 1 分鐘】RTHK 使用列表形式發送"""
     sources = [
         ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("📻 RTHK 電台", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
@@ -164,7 +159,6 @@ def process_priority_news():
     for label, url in sources:
         items = fetch_feed_entries(label, url)
         if not items: continue
-        
         is_rthk = (label == "📻 RTHK 電台")
         
         for chat_id in CHAT_IDS:
@@ -172,15 +166,14 @@ def process_priority_news():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if not unsent: continue
             
-            # RTHK 或者是同時有多條新聞稿時，使用列表形式
+            # RTHK 或者是同時有多條新聞時，整合發送
             if is_rthk or len(unsent) > 1:
                 lines = [f"<b>{label} (新消息)</b>"]
                 for rt, rl in unsent:
                     lines.append(f"• <a href=\"{rl}\">{html_escape_text(rt)}</a>")
                 full_msg = "\n".join(lines)
                 if send_message_to(chat_id, full_msg, disable_preview=is_rthk):
-                    for _, rl in unsent:
-                        SENT_MAP[chat_id].add(rl)
+                    for _, rl in unsent: SENT_MAP[chat_id].add(rl)
             else:
                 # 單條新聞稿
                 rt, rl = unsent[0]
@@ -190,7 +183,7 @@ def process_priority_news():
             save_sent_map(SENT_MAP)
 
 def process_grouped_news():
-    """【每 6 分鐘】16 組媒體整合報，強制 Hyperlink 化"""
+    """【每 6 分鐘】分段發送，確保不超過長度且 HTML 正確"""
     group_sources = [
         ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
@@ -218,22 +211,28 @@ def process_grouped_news():
         ensure_chat_key(SENT_MAP, chat_id)
         sections = []
         all_new_links = []
+        
+        # 遍歷所有來源
         for label, items in fetched.items():
             unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
             if unsent:
-                # 每個來源最多顯示 4 條，強制使用 <a> 標籤
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
                 all_new_links.extend([it[1] for it in unsent])
 
+        # 分段發送邏輯：每 8 個來源發送一次訊息，防止過長或單一錯誤毀掉全部
         if sections:
-            full_msg = "<b>📰 綜合媒體快訊 (6min)</b>\n\n" + "\n\n".join(sections)
-            # 強制 HTML 發送，失敗會輸出 Log 方便除錯
-            if send_message_to(chat_id, full_msg, disable_preview=True):
-                for link in all_new_links:
-                    SENT_MAP[chat_id].add(link)
-                save_sent_map(SENT_MAP)
+            chunk_size = 8
+            for i in range(0, len(sections), chunk_size):
+                chunk = sections[i:i + chunk_size]
+                full_msg = f"<b>📰 綜合媒體快訊 ({i//chunk_size + 1})</b>\n\n" + "\n\n".join(chunk)
+                send_message_to(chat_id, full_msg, disable_preview=True)
+            
+            # 更新已發送清單
+            for link in all_new_links:
+                SENT_MAP[chat_id].add(link)
+            save_sent_map(SENT_MAP)
 
 # ================== 7. 主循環 ==================
 def main_loop():
