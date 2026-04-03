@@ -185,7 +185,7 @@ def process_priority_news():
 def process_grouped_news():
     """【每 6 分鐘】分段發送，確保不超過長度且 HTML 正確"""
     group_sources = [
-        ("💡 On.cc", "https://rsshub-production-9dfc.up.railway.app/oncc/zh-hant/news"),
+        ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
