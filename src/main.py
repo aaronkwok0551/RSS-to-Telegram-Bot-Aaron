@@ -58,6 +58,10 @@ def clean_url(url: str) -> str:
     # 針對 HTML 屬性再次轉義 & 符號
     return html.escape(safe_url, quote=True)
 
+def get_unique_id(title: str, url: str, pub_time: str) -> str:
+    """將標題、URL 與發佈時間合併作為判斷是否發送過的唯一憑證"""
+    return f"{title}|{url}|{pub_time}"
+
 # ================== 3. 數據持久化 ==================
 def load_sent_map():
     try:
@@ -100,9 +104,7 @@ def send_message_to(chat_id, html_text, disable_preview=False):
     try:
         r = requests.post(url, data=payload, timeout=20)
         if r.status_code != 200:
-            # 如果失敗，在 Log 輸出錯誤原因，以便除錯
             print(f"❌ Telegram 發送失敗! ChatID: {chat_id}, Code: {r.status_code}, Resp: {r.text}")
-            # 不再自動切換到純文字，我們必須修好 HTML 格式
             return False
         return True
     except Exception as e:
@@ -120,10 +122,13 @@ def fetch_feed_entries(source_label, rss_url):
                     info = item.get("data", {})
                     title = clean_title_simple(info.get("title", ""))
                     link = info.get("publishUrl", "")
+                    
+                    pub_time = str(info.get("publishTime", info.get("lastModified", "")))
+                    
                     if link and not link.startswith("http"):
                         link = f"https://www.hk01.com{link}"
                     if title and link:
-                        entries.append((title, clean_url(link)))
+                        entries.append((title, clean_url(link), pub_time))
         except Exception: pass
     else:
         try:
@@ -132,6 +137,9 @@ def fetch_feed_entries(source_label, rss_url):
             for entry in feed.entries[:15]:
                 title = clean_title_simple(getattr(entry, "title", ""))
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
+                
+                pub_time = str(getattr(entry, "published", getattr(entry, "updated", "")))
+                
                 if link.startswith("/"):
                     if "4xPuKWS" in rss_url: link = f"https://www.881903.com{link}"
                     elif "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
@@ -144,17 +152,20 @@ def fetch_feed_entries(source_label, rss_url):
                     elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
                 link = clean_url(link)
                 if title and link.startswith("http"):
-                    entries.append((title, link))
+                    entries.append((title, link, pub_time))
         except Exception as e: pass
     return entries
 
 # ================== 6. 業務邏輯 ==================
 
 def process_priority_news():
-    """【每 1 分鐘】RTHK 使用列表形式發送"""
+    """【每 1 分鐘】優先處理即時性高的新聞"""
     sources = [
         ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("📻 RTHK 電台", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
+        # 【修改重點】將 HK01 和 明報 移到這裡，每 1 分鐘檢查一次
+        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
+        ("📝 明報", "https://politepaul.com/fd/xlNpIaaF7uSo.xml"), # 已套用 PolitePol 網址
     ]
     for label, url in sources:
         items = fetch_feed_entries(label, url)
@@ -163,32 +174,32 @@ def process_priority_news():
         
         for chat_id in CHAT_IDS:
             ensure_chat_key(SENT_MAP, chat_id)
-            unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
+            unsent = [it for it in items if get_unique_id(it[0], it[1], it[2]) not in SENT_MAP[chat_id]]
             if not unsent: continue
             
-            # RTHK 或者是同時有多條新聞時，整合發送
+            # 若為 RTHK 或同時有多條新聞時，整合發送
             if is_rthk or len(unsent) > 1:
                 lines = [f"<b>{label} (新消息)</b>"]
-                for rt, rl in unsent:
+                for rt, rl, rp in unsent: 
                     lines.append(f"• <a href=\"{rl}\">{html_escape_text(rt)}</a>")
                 full_msg = "\n".join(lines)
                 if send_message_to(chat_id, full_msg, disable_preview=is_rthk):
-                    for _, rl in unsent: SENT_MAP[chat_id].add(rl)
+                    for rt, rl, rp in unsent: 
+                        SENT_MAP[chat_id].add(get_unique_id(rt, rl, rp))
             else:
-                # 單條新聞稿
-                rt, rl = unsent[0]
+                # 單條新聞
+                rt, rl, rp = unsent[0]
                 msg = f"• <a href=\"{rl}\"><b>[{label}] {html_escape_text(rt)}</b></a>"
                 if send_message_to(chat_id, msg, disable_preview=False):
-                    SENT_MAP[chat_id].add(rl)
+                    SENT_MAP[chat_id].add(get_unique_id(rt, rl, rp))
             save_sent_map(SENT_MAP)
 
 def process_grouped_news():
     """【每 6 分鐘】分段發送，確保不超過長度且 HTML 正確"""
     group_sources = [
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
-        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
+        # 已移除 HK01 和 明報
         ("🐯 星島", "https://www.stheadline.com/rss"),
-        ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
@@ -210,18 +221,18 @@ def process_grouped_news():
     for chat_id in CHAT_IDS:
         ensure_chat_key(SENT_MAP, chat_id)
         sections = []
-        all_new_links = []
+        all_new_ids = []
         
         # 遍歷所有來源
         for label, items in fetched.items():
-            unsent = [it for it in items if it[1] not in SENT_MAP[chat_id]]
+            unsent = [it for it in items if get_unique_id(it[0], it[1], it[2]) not in SENT_MAP[chat_id]]
             if unsent:
                 lines = [f"<b>{label}</b>"] + \
                         [f"• <a href=\"{it[1]}\">{html_escape_text(it[0])}</a>" for it in unsent[:4]]
                 sections.append("\n".join(lines))
-                all_new_links.extend([it[1] for it in unsent])
+                all_new_ids.extend([get_unique_id(it[0], it[1], it[2]) for it in unsent])
 
-        # 分段發送邏輯：每 8 個來源發送一次訊息，防止過長或單一錯誤毀掉全部
+        # 分段發送邏輯
         if sections:
             chunk_size = 8
             for i in range(0, len(sections), chunk_size):
@@ -229,9 +240,8 @@ def process_grouped_news():
                 full_msg = f"<b>📰 綜合媒體快訊 ({i//chunk_size + 1})</b>\n\n" + "\n\n".join(chunk)
                 send_message_to(chat_id, full_msg, disable_preview=True)
             
-            # 更新已發送清單
-            for link in all_new_links:
-                SENT_MAP[chat_id].add(link)
+            for uid in all_new_ids:
+                SENT_MAP[chat_id].add(uid)
             save_sent_map(SENT_MAP)
 
 # ================== 7. 主循環 ==================
