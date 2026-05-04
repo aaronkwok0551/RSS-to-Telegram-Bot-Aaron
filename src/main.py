@@ -163,9 +163,6 @@ def process_priority_news():
     sources = [
         ("🏛 新聞稿", "https://www.info.gov.hk/gia/rss/general_zh.xml"),
         ("📻 RTHK 電台", "https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml"),
-        # 【修改重點】將 HK01 和 明報 移到這裡，每 1 分鐘檢查一次
-        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
-        ("📝 明報", "https://politepaul.com/fd/xlNpIaaF7uSo.xml"), # 已套用 PolitePol 網址
     ]
     for label, url in sources:
         items = fetch_feed_entries(label, url)
@@ -198,8 +195,9 @@ def process_grouped_news():
     """【每 6 分鐘】分段發送，確保不超過長度且 HTML 正確"""
     group_sources = [
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
-        # 已移除 HK01 和 明報
+        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"), # 已移回每 6 分鐘清單
         ("🐯 星島", "https://www.stheadline.com/rss"),
+        ("📝 明報", "https://politepaul.com/fd/xlNpIaaF7uSo.xml"),     # 已移回每 6 分鐘清單
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
