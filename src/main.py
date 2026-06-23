@@ -199,6 +199,7 @@ def process_grouped_news():
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),     # 已移回每 6 分鐘清單
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
+        ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
         ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),
