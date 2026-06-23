@@ -197,7 +197,7 @@ def process_grouped_news():
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"), # 已移回每 6 分鐘清單
         ("🐯 星島", "https://www.stheadline.com/rss"),
-        ("📝 明報", "https://news.mingpao.com/rss/ins/all.xml"),     # 已移回每 6 分鐘清單
+        ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),     # 已移回每 6 分鐘清單
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
