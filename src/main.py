@@ -29,11 +29,20 @@ CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
 SENT_FILE = "sent_urls_per_chat.json"
 MAX_SENT_CACHE = 500 
 
-# ================== 2. 工具函數 (最強防禦) ==================
+# 🚨 健康監控追蹤器 (設定各媒體容忍度)
+FEED_ERRORS = {}
+DEFAULT_ALERT_THRESHOLD = 10  # 預設：連續失敗 10 次 (約 1 小時) 發送警報
+
+CUSTOM_THRESHOLDS = {
+    "📜 商報評論": 50,  # 容忍連續空白約 5 小時
+    "🔵 點新聞評論": 30, # 容忍連續空白約 3 小時
+    "🔵 文匯評論": 30,
+    "📝 明報": 15        # 容忍連續空白約 1.5 小時
+}
+
+# ================== 2. 工具函數 ==================
 def html_escape_text(s: str) -> str:
-    """使用 Python 官方標準庫進行轉義，這是最安全的做法"""
     if not s: return ""
-    # 先還原原本可能存在的轉義，再統一重新轉義
     s = html.unescape(str(s))
     return html.escape(s, quote=True)
 
@@ -48,18 +57,15 @@ def clean_title_simple(s: str) -> str:
     return s.strip()
 
 def clean_url(url: str) -> str:
-    """網址編碼：確保 URL 在 href 屬性中 100% 安全"""
     if not url: return ""
     url = url.strip()
     if "hkej.com" in url:
         url = url.replace("m.hkej.com", "www.hkej.com").replace("++", "")
-    # 對網址進行編碼
     safe_url = quote(url, safe=":/%?=&")
-    # 針對 HTML 屬性再次轉義 & 符號
     return html.escape(safe_url, quote=True)
 
 def get_unique_id(title: str, url: str, pub_time: str) -> str:
-    """將標題、URL 與發佈時間合併作為判斷是否發送過的唯一憑證"""
+    """標題、URL 與發佈時間合併的防重複憑證"""
     return f"{title}|{url}|{pub_time}"
 
 # ================== 3. 數據持久化 ==================
@@ -91,7 +97,7 @@ def ensure_chat_key(sent_map, chat_id):
     if chat_id not in sent_map:
         sent_map[chat_id] = set()
 
-# ================== 4. Telegram 發送引擎 (修正版) ==================
+# ================== 4. Telegram 發送引擎 ==================
 def send_message_to(chat_id, html_text, disable_preview=False):
     if not BOT_TOKEN: return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -122,7 +128,6 @@ def fetch_feed_entries(source_label, rss_url):
                     info = item.get("data", {})
                     title = clean_title_simple(info.get("title", ""))
                     link = info.get("publishUrl", "")
-                    
                     pub_time = str(info.get("publishTime", info.get("lastModified", "")))
                     
                     if link and not link.startswith("http"):
@@ -137,7 +142,6 @@ def fetch_feed_entries(source_label, rss_url):
             for entry in feed.entries[:15]:
                 title = clean_title_simple(getattr(entry, "title", ""))
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
-                
                 pub_time = str(getattr(entry, "published", getattr(entry, "updated", "")))
                 
                 if link.startswith("/"):
@@ -166,15 +170,28 @@ def process_priority_news():
     ]
     for label, url in sources:
         items = fetch_feed_entries(label, url)
-        if not items: continue
-        is_rthk = (label == "📻 RTHK 電台")
+        threshold = CUSTOM_THRESHOLDS.get(label, DEFAULT_ALERT_THRESHOLD)
         
+        # --- 健康監控邏輯 ---
+        if not items:
+            FEED_ERRORS[label] = FEED_ERRORS.get(label, 0) + 1
+            if FEED_ERRORS[label] == threshold and CHAT_IDS:
+                alert_msg = f"⚠️ <b>系統警告：RSS 故障</b>\n\n發現 <b>{label}</b> 已連續 {threshold} 次無法抓取資料，請抽空檢查！"
+                send_message_to(CHAT_IDS[0], alert_msg)
+            continue
+        else:
+            if FEED_ERRORS.get(label, 0) >= threshold and CHAT_IDS:
+                recover_msg = f"✅ <b>系統通知：RSS 恢復</b>\n\n<b>{label}</b> 來源已恢復正常連線！"
+                send_message_to(CHAT_IDS[0], recover_msg)
+            FEED_ERRORS[label] = 0
+            
+        # --- 發送邏輯 ---
+        is_rthk = (label == "📻 RTHK 電台")
         for chat_id in CHAT_IDS:
             ensure_chat_key(SENT_MAP, chat_id)
             unsent = [it for it in items if get_unique_id(it[0], it[1], it[2]) not in SENT_MAP[chat_id]]
             if not unsent: continue
             
-            # 若為 RTHK 或同時有多條新聞時，整合發送
             if is_rthk or len(unsent) > 1:
                 lines = [f"<b>{label} (新消息)</b>"]
                 for rt, rl, rp in unsent: 
@@ -184,7 +201,6 @@ def process_priority_news():
                     for rt, rl, rp in unsent: 
                         SENT_MAP[chat_id].add(get_unique_id(rt, rl, rp))
             else:
-                # 單條新聞
                 rt, rl, rp = unsent[0]
                 msg = f"• <a href=\"{rl}\"><b>[{label}] {html_escape_text(rt)}</b></a>"
                 if send_message_to(chat_id, msg, disable_preview=False):
@@ -195,9 +211,9 @@ def process_grouped_news():
     """【每 6 分鐘】分段發送，確保不超過長度且 HTML 正確"""
     group_sources = [
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
-        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"), # 已移回每 6 分鐘清單
+        ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
-        ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),     # 已移回每 6 分鐘清單
+        ("📝 明報", "https://politepaul.com/fd/xlNpIaaF7uSo.xml"),
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
@@ -215,14 +231,29 @@ def process_grouped_news():
     
     fetched = {}
     for label, url in group_sources:
-        fetched[label] = fetch_feed_entries(label, url)
+        items = fetch_feed_entries(label, url)
+        threshold = CUSTOM_THRESHOLDS.get(label, DEFAULT_ALERT_THRESHOLD)
+        
+        # --- 健康監控邏輯 ---
+        if not items:
+            FEED_ERRORS[label] = FEED_ERRORS.get(label, 0) + 1
+            if FEED_ERRORS[label] == threshold and CHAT_IDS:
+                alert_msg = f"⚠️ <b>系統警告：RSS 故障</b>\n\n發現 <b>{label}</b> 已連續 {threshold} 次無法抓取資料，有時間請通知Aaron去睇睇！"
+                send_message_to(CHAT_IDS[0], alert_msg)
+        else:
+            if FEED_ERRORS.get(label, 0) >= threshold and CHAT_IDS:
+                recover_msg = f"✅ <b>系統通知：RSS 恢復</b>\n\n<b>{label}</b> 來源已恢復正常運作！"
+                send_message_to(CHAT_IDS[0], recover_msg)
+            FEED_ERRORS[label] = 0
+            
+            fetched[label] = items
 
+    # --- 發送邏輯 ---
     for chat_id in CHAT_IDS:
         ensure_chat_key(SENT_MAP, chat_id)
         sections = []
         all_new_ids = []
         
-        # 遍歷所有來源
         for label, items in fetched.items():
             unsent = [it for it in items if get_unique_id(it[0], it[1], it[2]) not in SENT_MAP[chat_id]]
             if unsent:
@@ -231,7 +262,6 @@ def process_grouped_news():
                 sections.append("\n".join(lines))
                 all_new_ids.extend([get_unique_id(it[0], it[1], it[2]) for it in unsent])
 
-        # 分段發送邏輯
         if sections:
             chunk_size = 8
             for i in range(0, len(sections), chunk_size):
