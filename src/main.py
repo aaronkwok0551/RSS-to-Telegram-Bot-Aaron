@@ -213,7 +213,7 @@ def process_grouped_news():
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
-        ("📝 明報", "https://politepaul.com/fd/xlNpIaaF7uSo.xml"),
+        ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
         ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
