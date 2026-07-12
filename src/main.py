@@ -144,15 +144,11 @@ elif source_label == "🔵 商台即時":
                 for item in content_list[:15]:
                     title = clean_title_simple(item.get("title", ""))
                     
-                    # 1. 改用 item_id 作為真實的新聞編號
+                    # 使用 item_id 和 uri_code 來組合正確網址
                     item_id = item.get("item_id", "")
-                    
-                    # 2. 動態獲取分類代碼 (例如 local, international, finance)
                     uri_code = item.get("article_column", {}).get("uri_code", "local")
-                    
                     pub_time = str(item.get("display_ts", ""))
                     
-                    # 3. 組合出完全正確的網址格式！
                     link = f"https://www.881903.com/news/{uri_code}/{item_id}" if item_id else ""
                     
                     if title and link:
