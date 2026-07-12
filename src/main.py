@@ -136,17 +136,24 @@ def fetch_feed_entries(source_label, rss_url):
                         entries.append((title, clean_url(link), pub_time))
         except Exception: pass
         
-    elif source_label == "🔵 商台即時":
+elif source_label == "🔵 商台即時":
         try:
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             if resp.status_code == 200:
                 content_list = resp.json().get("response", {}).get("content", [])
                 for item in content_list[:15]:
                     title = clean_title_simple(item.get("title", ""))
-                    content_id = item.get("content_id", "")
+                    
+                    # 1. 改用 item_id 作為真實的新聞編號
+                    item_id = item.get("item_id", "")
+                    
+                    # 2. 動態獲取分類代碼 (例如 local, international, finance)
+                    uri_code = item.get("article_column", {}).get("uri_code", "local")
+                    
                     pub_time = str(item.get("display_ts", ""))
                     
-                    link = f"https://www.881903.com/news/local/{content_id}" if content_id else ""
+                    # 3. 組合出完全正確的網址格式！
+                    link = f"https://www.881903.com/news/{uri_code}/{item_id}" if item_id else ""
                     
                     if title and link:
                         entries.append((title, clean_url(link), pub_time))
