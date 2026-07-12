@@ -136,7 +136,7 @@ def fetch_feed_entries(source_label, rss_url):
                         entries.append((title, clean_url(link), pub_time))
         except Exception: pass
         
-elif source_label == "🔵 商台即時":
+    elif source_label == "🔵 商台即時":
         try:
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             if resp.status_code == 200:
