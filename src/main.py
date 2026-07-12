@@ -135,6 +135,24 @@ def fetch_feed_entries(source_label, rss_url):
                     if title and link:
                         entries.append((title, clean_url(link), pub_time))
         except Exception: pass
+        
+    elif source_label == "🔵 商台即時":
+        try:
+            resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            if resp.status_code == 200:
+                content_list = resp.json().get("response", {}).get("content", [])
+                for item in content_list[:15]:
+                    title = clean_title_simple(item.get("title", ""))
+                    content_id = item.get("content_id", "")
+                    pub_time = str(item.get("display_ts", ""))
+                    
+                    link = f"https://www.881903.com/news/local/{content_id}" if content_id else ""
+                    
+                    if title and link:
+                        entries.append((title, clean_url(link), pub_time))
+        except Exception as e:
+            print(f"商台 API 抓取錯誤: {e}")
+            
     else:
         try:
             r = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
@@ -145,8 +163,7 @@ def fetch_feed_entries(source_label, rss_url):
                 pub_time = str(getattr(entry, "published", getattr(entry, "updated", "")))
                 
                 if link.startswith("/"):
-                    if "4xPuKWS" in rss_url: link = f"https://www.881903.com{link}"
-                    elif "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
+                    if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
                     elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
                     elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
                     elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
@@ -226,7 +243,7 @@ def process_grouped_news():
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
         ("🔵 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
-        ("🔵 商台即時", "https://politepaul.com/fd/4xPuKWS07tJs.xml")
+        ("🔵 商台即時", "https://www.881903.com/api/news/section/morelist?news_column_id=11&limit=20")
     ]
     
     fetched = {}
