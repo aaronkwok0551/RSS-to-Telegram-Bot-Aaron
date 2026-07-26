@@ -48,9 +48,9 @@ elif os.environ.get("CHAT_ID"):
     INITIAL_CHAT_IDS.append(os.environ.get("CHAT_ID", "").strip())
 INITIAL_CHAT_IDS = list(dict.fromkeys(cid for cid in INITIAL_CHAT_IDS if cid))
 
-ADMIN_CHAT_ID = (os.environ.get("ADMIN_CHAT_ID") or "").strip()
-if not ADMIN_CHAT_ID and INITIAL_CHAT_IDS:
-    ADMIN_CHAT_ID = INITIAL_CHAT_IDS[0]
+ADMIN_ID = (os.environ.get("ADMIN_ID") or "").strip()
+if not ADMIN_ID and INITIAL_CHAT_IDS:
+    ADMIN_ID = INITIAL_CHAT_IDS[0]
 
 # Railway 建議把 Volume 掛載到 /app/data，然後設 DATA_DIR=/app/data。
 DATA_DIR = (os.environ.get("DATA_DIR") or ".").strip()
