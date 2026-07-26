@@ -224,13 +224,16 @@ def fetch_feed_entries(source_label, rss_url):
             
     elif "rssworkertopick" in rss_url:
         try:
-            resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
-            print(f"🔍 TOPick API 狀態碼: {resp.status_code}")
-            print(f"🔍 TOPick 原始文字內容: {resp.text[:200]}")  # 👈 印出前 200 個字看看拿到什麼
+            # 加上真實瀏覽器的 User-Agent，防止 Cloudflare 把 Python 的請求當作機器人攔截
+            custom_headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8"
+            }
+            resp = requests.get(rss_url, headers=custom_headers, timeout=15, verify=False)
             
             if resp.status_code == 200:
                 data = resp.json()
-                print(f"🔍 TOPick 成功解析 JSON，文章數量: {len(data)}")
                 for item in data:
                     title = clean_title_simple(item.get("title", ""))
                     link = item.get("link", "").strip()
@@ -243,7 +246,7 @@ def fetch_feed_entries(source_label, rss_url):
                     if title and link.startswith("http"):
                         entries.append((title, link, pub_time))
         except Exception as e:
-            print(f"❌ TOPick JSON Fetch Error: {e}")
+            print(f"TOPick JSON Fetch Error: {e}")
             
     else:
         try:
