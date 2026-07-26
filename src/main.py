@@ -4,17 +4,17 @@ Telegram 新聞 Bot（管理員審批訂閱版）
 
 訂閱流程：
 1. 新用戶先私訊 Bot，輸入 /subscribe。
-2. Bot 把申請通知 ADMIN_CHAT_ID，附上「批准／拒絕」按鈕。
+2. Bot 把申請通知 ADMIN_ID，附上「批准／拒絕」按鈕。
 3. 只有管理員批准後，用戶才會加入新聞發送名單。
 4. 用戶可隨時輸入 /unsubscribe 取消訂閱。
 
 Railway 只需一次設定：
 - BOT_TOKEN：Telegram Bot Token
-- ADMIN_CHAT_ID：管理員的 Telegram numeric chat ID
+- ADMIN_ID：管理員的 Telegram numeric chat ID
 - DATA_DIR：建議設為 /app/data，並把 Railway Volume 掛載到 /app/data
 
 向下兼容：
-- 如未設定 ADMIN_CHAT_ID，會使用 CHAT_IDS 的第一個 ID 作管理員。
+- 如未設定 ADMIN_ID，會使用 CHAT_IDS 的第一個 ID 作管理員。
 - 原有 CHAT_IDS / CHAT_ID 會在首次啟動時自動加入已批准訂閱者。
 """
 
