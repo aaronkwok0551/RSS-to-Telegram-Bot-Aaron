@@ -310,7 +310,7 @@ def process_grouped_news():
         ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
-        ("🟢 TOPick", "https://rssworkertopick.aaronkwok0551.workers.dev"),
+        ("🟢 TOPick", "https://rssworkertopick.aaronkwok0551.workers.dev/"),
         ("📜 商報評論", "https://politepaul.com/fd/GO5FgkDR2gmP.xml"),
         ("🍊 橙新聞即時", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("🍊 橙新聞專欄", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"),
