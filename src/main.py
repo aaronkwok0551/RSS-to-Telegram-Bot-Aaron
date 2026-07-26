@@ -233,14 +233,13 @@ def fetch_feed_entries(source_label, rss_url):
                 
                 # 🟢 專屬通道：如果是你的 Cloudflare Worker 來源，直接信任並確保有 http 開頭
                 if "rssworkertopick" in rss_url:
-                    if link.startswith("/"):
-                        link = f"https://news.hket.com{link}"
+                    pass  # 直接使用 Worker 傳過來的完整網址，甚麼都不用改
                 else:
                     # 原有的其他 RSS 補全邏輯
                     if link.startswith("/"):
                         if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
                         elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
-                        elif "rssworkertopick" in rss_url: link = f"https://news.hket.com{link}"
+                        elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
                         elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
                         elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
                         elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
