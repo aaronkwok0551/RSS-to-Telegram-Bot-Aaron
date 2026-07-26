@@ -231,27 +231,28 @@ def fetch_feed_entries(source_label, rss_url):
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
                 pub_time = str(getattr(entry, "published", getattr(entry, "updated", "")))
                 
-                if link.startswith("/"):
-                    if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
-                    elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
-                    elif "X5o1ke3" in rss_url or "rssworkertopick" in rss_url: link = f"https://news.hket.com/{link}"
-                    elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
-                    elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
-                    elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
-                    elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
-                    elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
-                
-                # 保險條款：如果來源標籤是 TOPick 且網址不是 http 開頭，強制補上
-                if source_label == "🟢 TOPick" and not link.startswith("http"):
+                # 🟢 專屬通道：如果是你的 Cloudflare Worker 來源，直接信任並確保有 http 開頭
+                if "rssworkertopick" in rss_url:
                     if link.startswith("/"):
-                        link = f"https://news.hket.com/{link}"
-                    else:
-                        link = f"https://news.hket.com/{link}"
+                        link = f"https://news.hket.com{link}"
+                else:
+                    # 原有的其他 RSS 補全邏輯
+                    if link.startswith("/"):
+                        if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
+                        elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
+                        elif "rssworkertopick" in rss_url: link = f"https://news.hket.com{link}"
+                        elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
+                        elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
+                        elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
+                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
+                        elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
+                
                 link = clean_url(link)
-
                 if title and link.startswith("http"):
                     entries.append((title, link, pub_time))
-        except Exception as e: pass
+        except Exception as e:
+            print(f"Feed Parse Error ({source_label}): {e}")
+            pass
     return entries
 
 # ================== 6. 業務邏輯 ==================
