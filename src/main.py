@@ -225,8 +225,10 @@ def fetch_feed_entries(source_label, rss_url):
     elif "rssworkertopick" in rss_url:
         try:
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+            print(f"🔍 TOPick API 狀態碼: {resp.status_code}") # 印出狀態碼
             if resp.status_code == 200:
                 data = resp.json()
+                print(f"🔍 TOPick 成功解析 JSON，文章數量: {len(data)}") # 印出文章數
                 for item in data:
                     title = clean_title_simple(item.get("title", ""))
                     link = item.get("link", "").strip()
@@ -239,7 +241,7 @@ def fetch_feed_entries(source_label, rss_url):
                     if title and link.startswith("http"):
                         entries.append((title, link, pub_time))
         except Exception as e:
-            print(f"TOPick JSON Fetch Error: {e}")
+            print(f"❌ TOPick JSON Fetch Error: {e}")
             
     else:
         try:
