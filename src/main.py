@@ -4,17 +4,17 @@ Telegram 新聞 Bot（管理員審批訂閱版）
 
 訂閱流程：
 1. 新用戶先私訊 Bot，輸入 /subscribe。
-2. Bot 把申請通知 ADMIN_ID，附上「批准／拒絕」按鈕。
+2. Bot 把申請通知 ADMIN_CHAT_ID，附上「批准／拒絕」按鈕。
 3. 只有管理員批准後，用戶才會加入新聞發送名單。
 4. 用戶可隨時輸入 /unsubscribe 取消訂閱。
 
 Railway 只需一次設定：
 - BOT_TOKEN：Telegram Bot Token
-- ADMIN_ID：管理員的 Telegram numeric chat ID
+- ADMIN_CHAT_ID：管理員的 Telegram numeric chat ID
 - DATA_DIR：建議設為 /app/data，並把 Railway Volume 掛載到 /app/data
 
 向下兼容：
-- 如未設定 ADMIN_ID，會使用 CHAT_IDS 的第一個 ID 作管理員。
+- 如未設定 ADMIN_CHAT_ID，會使用 CHAT_IDS 的第一個 ID 作管理員。
 - 原有 CHAT_IDS / CHAT_ID 會在首次啟動時自動加入已批准訂閱者。
 """
 
@@ -48,9 +48,19 @@ elif os.environ.get("CHAT_ID"):
     INITIAL_CHAT_IDS.append(os.environ.get("CHAT_ID", "").strip())
 INITIAL_CHAT_IDS = list(dict.fromkeys(cid for cid in INITIAL_CHAT_IDS if cid))
 
-ADMIN_ID = (os.environ.get("ADMIN_ID") or "").strip()
+# Railway 的主要環境變數使用 ADMIN_ID。
+# 同時兼容舊名稱 ADMIN_CHAT_ID，避免現有部署設定失效。
+ADMIN_ID = (
+    os.environ.get("ADMIN_ID")
+    or os.environ.get("ADMIN_CHAT_ID")
+    or ""
+).strip()
+
 if not ADMIN_ID and INITIAL_CHAT_IDS:
     ADMIN_ID = INITIAL_CHAT_IDS[0]
+
+# 程式其他部分原本使用 ADMIN_CHAT_ID；保留別名以確保全部功能正常。
+ADMIN_CHAT_ID = ADMIN_ID
 
 # Railway 建議把 Volume 掛載到 /app/data，然後設 DATA_DIR=/app/data。
 DATA_DIR = (os.environ.get("DATA_DIR") or ".").strip()
@@ -876,7 +886,7 @@ def validate_configuration() -> None:
         raise RuntimeError("尚未設定 BOT_TOKEN")
     if not ADMIN_CHAT_ID:
         raise RuntimeError(
-            "尚未設定 ADMIN_CHAT_ID，亦無法從 CHAT_IDS 取得管理員 ID。"
+            "尚未設定 ADMIN_ID（或兼容名稱 ADMIN_CHAT_ID），亦無法從 CHAT_IDS 取得管理員 ID。"
         )
 
 
@@ -885,7 +895,7 @@ def main_loop() -> None:
     ensure_long_polling_mode()
 
     print("✅ News Bot 啟動成功，Telegram 審批及新聞監控中……")
-    print(f"✅ 管理員 Chat ID：{ADMIN_CHAT_ID}")
+    print(f"✅ 管理員 Chat ID：{ADMIN_CHAT_ID}（來源：ADMIN_ID／兼容設定）")
     print(f"✅ 已批准訂閱者數目：{len(get_approved_chat_ids())}")
 
     next_telegram_poll = 0.0
