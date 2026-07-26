@@ -222,34 +222,43 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e:
             print(f"商台 API 抓取錯誤: {e}")
             
+    elif "rssworkertopick" in rss_url:
+        try:
+            resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data:
+                    title = clean_title_simple(item.get("title", ""))
+                    link = item.get("link", "").strip()
+                    pub_time = str(item.get("pub_time", ""))
+                    
+                    if "#" in link:
+                        link = link.split("#")[0]
+                    
+                    link = clean_url(link)
+                    if title and link.startswith("http"):
+                        entries.append((title, link, pub_time))
+        except Exception as e:
+            print(f"TOPick JSON Fetch Error: {e}")
+            
     else:
         try:
             r = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
             feed = feedparser.parse(r.content)
-                # 🟢 [新增這行來檢查]
-            if "rssworkertopick" in rss_url:
-                print(f"DEBUG TOPick 抓到的項目數: {len(feed.entries)}, 原始內容: {feed.entries[:2]}")
-
-            
             for entry in feed.entries[:15]:
                 title = clean_title_simple(getattr(entry, "title", ""))
                 link = (getattr(entry, "link", "") or getattr(entry, "id", "") or "").strip()
                 pub_time = str(getattr(entry, "published", getattr(entry, "updated", "")))
                 
-                # 🟢 專屬通道：如果是你的 Cloudflare Worker 來源，直接信任並確保有 http 開頭
-                if "rssworkertopick" in rss_url:
-                    pass  # 直接使用 Worker 傳過來的完整網址，甚麼都不用改
-                else:
-                    # 原有的其他 RSS 補全邏輯
-                    if link.startswith("/"):
-                        if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
-                        elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
-                        elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
-                        elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
-                        elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
-                        elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
-                        elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
-                        elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
+                if link.startswith("/"):
+                    if "7vsPHGi" in rss_url: link = f"https://www.i-cable.com{link}"
+                    elif "tBTzOcf" in rss_url: link = f"https://www.hkej.com{link}"
+                    elif "X5o1ke3" in rss_url: link = f"https://topick.hket.com{link}"
+                    elif "Lk7D530m" in rss_url: link = f"https://news.now.com{link}"
+                    elif "hkcd" in rss_url or "pl.html" in rss_url: link = f"https://www.hkcd.com.hk{link}"
+                    elif "6oljXv" in rss_url or "C499xnj" in rss_url: link = f"https://www.wenweipo.com{link}"
+                    elif "59Pndw" in rss_url or "xbfGvXW" in rss_url: link = f"https://www.dotdotnews.com{link}"
+                    elif "KZGhq" in rss_url or "8fzf6zR" in rss_url: link = f"https://www.orangenews.hk{link}"
                 
                 link = clean_url(link)
                 if title and link.startswith("http"):
@@ -257,8 +266,8 @@ def fetch_feed_entries(source_label, rss_url):
         except Exception as e:
             print(f"Feed Parse Error ({source_label}): {e}")
             pass
+            
     return entries
-
 # ================== 6. 業務邏輯 ==================
 
 def process_priority_news():
