@@ -225,10 +225,12 @@ def fetch_feed_entries(source_label, rss_url):
     elif "rssworkertopick" in rss_url:
         try:
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
-            print(f"🔍 TOPick API 狀態碼: {resp.status_code}") # 印出狀態碼
+            print(f"🔍 TOPick API 狀態碼: {resp.status_code}")
+            print(f"🔍 TOPick 原始文字內容: {resp.text[:200]}")  # 👈 印出前 200 個字看看拿到什麼
+            
             if resp.status_code == 200:
                 data = resp.json()
-                print(f"🔍 TOPick 成功解析 JSON，文章數量: {len(data)}") # 印出文章數
+                print(f"🔍 TOPick 成功解析 JSON，文章數量: {len(data)}")
                 for item in data:
                     title = clean_title_simple(item.get("title", ""))
                     link = item.get("link", "").strip()
