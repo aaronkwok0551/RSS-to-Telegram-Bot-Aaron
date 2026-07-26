@@ -15,16 +15,37 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ================== 1. 基本設定 ==================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-_raw_ids = os.environ.get("CHAT_IDS", "").strip()
-CHAT_IDS = []
-if _raw_ids:
-    CHAT_IDS = [cid.strip() for cid in _raw_ids.split(",") if cid.strip()]
-else:
-    if os.environ.get("CHAT_ID"):
-        CHAT_IDS.append(os.environ.get("CHAT_ID").strip())
-CHAT_IDS = [cid for cid in dict.fromkeys(CHAT_IDS) if cid]
+# 讀取 Railway 環境變數中的管理員 ID
+ADMIN_ID = os.environ.get("ADMIN_ID", "")  
+CHAT_IDS_FILE = "chat_ids.json"
+LAST_UPDATE_ID = 0  
+
+def load_chat_ids():
+    """從檔案載入 Chat ID，支援動態擴充"""
+    cids = []
+    if os.path.exists(CHAT_IDS_FILE):
+        try:
+            with open(CHAT_IDS_FILE, "r", encoding="utf-8") as f:
+                cids = json.load(f)
+        except Exception: pass
+    else:
+        _raw_ids = os.environ.get("CHAT_IDS", "").strip()
+        if _raw_ids:
+            cids = [cid.strip() for cid in _raw_ids.split(",") if cid.strip()]
+        elif os.environ.get("CHAT_ID"):
+            cids.append(os.environ.get("CHAT_ID").strip())
+        save_chat_ids(cids)
+    return list(dict.fromkeys(cids))
+
+def save_chat_ids(cids):
+    """儲存 Chat ID 到檔案"""
+    with open(CHAT_IDS_FILE, "w", encoding="utf-8") as f:
+        json.dump(cids, f)
+
+# 初始化 CHAT_IDS
+CHAT_IDS = load_chat_ids()
 
 SENT_FILE = "sent_urls_per_chat.json"
 MAX_SENT_CACHE = 500 
@@ -94,15 +115,15 @@ def save_sent_map(sent_map):
 SENT_MAP = load_sent_map()
 
 def ensure_chat_key(sent_map, chat_id):
-    if chat_id not in sent_map:
-        sent_map[chat_id] = set()
+    if str(chat_id) not in sent_map:
+        sent_map[str(chat_id)] = set()
 
-# ================== 4. Telegram 發送引擎 ==================
+# ================== 4. Telegram 發送與接收引擎 ==================
 def send_message_to(chat_id, html_text, disable_preview=False):
     if not BOT_TOKEN: return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": chat_id,
+        "chat_id": str(chat_id),
         "text": html_text,
         "parse_mode": "HTML",
         "disable_web_page_preview": disable_preview
@@ -116,6 +137,52 @@ def send_message_to(chat_id, html_text, disable_preview=False):
     except Exception as e:
         print(f"Send Error: {e}")
         return False
+
+def check_admin_commands():
+    """檢查並處理 Admin 的指令"""
+    global LAST_UPDATE_ID, CHAT_IDS
+    if not BOT_TOKEN or not ADMIN_ID: return
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {"timeout": 5}
+    if LAST_UPDATE_ID:
+        params["offset"] = LAST_UPDATE_ID + 1
+
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 200:
+            updates = r.json().get("result", [])
+            for update in updates:
+                LAST_UPDATE_ID = update["update_id"]
+                message = update.get("message", {})
+                text = message.get("text", "").strip()
+                sender_id = str(message.get("from", {}).get("id", ""))
+                chat_id = str(message.get("chat", {}).get("id", ""))
+
+                if sender_id == ADMIN_ID:
+                    if text.startswith("/add "):
+                        new_id = text.split(" ")[1].strip()
+                        if new_id not in CHAT_IDS:
+                            CHAT_IDS.append(new_id)
+                            save_chat_ids(CHAT_IDS)
+                            send_message_to(chat_id, f"✅ 成功將 {new_id} 加入廣播清單！目前總訂閱數: {len(CHAT_IDS)}")
+                        else:
+                            send_message_to(chat_id, f"⚠️ {new_id} 已經在清單中了。")
+                    
+                    elif text == "/addme":
+                        if chat_id not in CHAT_IDS:
+                            CHAT_IDS.append(chat_id)
+                            save_chat_ids(CHAT_IDS)
+                            send_message_to(chat_id, "✅ 已將此對話框加入新聞廣播清單！")
+                        else:
+                            send_message_to(chat_id, "⚠️ 此對話框已經在接收清單中了。")
+                    
+                    elif text == "/list":
+                        msg = "📊 <b>目前接收名單：</b>\n" + "\n".join(CHAT_IDS)
+                        send_message_to(chat_id, msg)
+                        
+    except Exception as e:
+        print(f"Fetch Update Error: {e}")
 
 # ================== 5. 抓取與補全 ==================
 def fetch_feed_entries(source_label, rss_url):
@@ -144,7 +211,6 @@ def fetch_feed_entries(source_label, rss_url):
                 for item in content_list[:15]:
                     title = clean_title_simple(item.get("title", ""))
                     
-                    # 使用 item_id 和 uri_code 來組合正確網址
                     item_id = item.get("item_id", "")
                     uri_code = item.get("article_column", {}).get("uri_code", "local")
                     pub_time = str(item.get("display_ts", ""))
@@ -192,7 +258,6 @@ def process_priority_news():
         items = fetch_feed_entries(label, url)
         threshold = CUSTOM_THRESHOLDS.get(label, DEFAULT_ALERT_THRESHOLD)
         
-        # --- 健康監控邏輯 ---
         if not items:
             FEED_ERRORS[label] = FEED_ERRORS.get(label, 0) + 1
             if FEED_ERRORS[label] == threshold and CHAT_IDS:
@@ -205,7 +270,6 @@ def process_priority_news():
                 send_message_to(CHAT_IDS[0], recover_msg)
             FEED_ERRORS[label] = 0
             
-        # --- 發送邏輯 ---
         is_rthk = (label == "📻 RTHK 電台")
         for chat_id in CHAT_IDS:
             ensure_chat_key(SENT_MAP, chat_id)
@@ -238,7 +302,7 @@ def process_grouped_news():
         ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
-        ("🟢 TOPick", "https://politepaul.com/fd/X5o1ke3uTiH3.xml"),
+        ("🟢 TOPick", "https://rssworkertopick.aaronkwok0551.workers.dev/"),
         ("📜 商報評論", "https://politepaul.com/fd/GO5FgkDR2gmP.xml"),
         ("🍊 橙新聞即時", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("🍊 橙新聞專欄", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"),
@@ -254,7 +318,6 @@ def process_grouped_news():
         items = fetch_feed_entries(label, url)
         threshold = CUSTOM_THRESHOLDS.get(label, DEFAULT_ALERT_THRESHOLD)
         
-        # --- 健康監控邏輯 ---
         if not items:
             FEED_ERRORS[label] = FEED_ERRORS.get(label, 0) + 1
             if FEED_ERRORS[label] == threshold and CHAT_IDS:
@@ -268,7 +331,6 @@ def process_grouped_news():
             
             fetched[label] = items
 
-    # --- 發送邏輯 ---
     for chat_id in CHAT_IDS:
         ensure_chat_key(SENT_MAP, chat_id)
         sections = []
@@ -299,6 +361,8 @@ def main_loop():
     loop_count = 0
     while True:
         try:
+            check_admin_commands()
+
             hk_now = datetime.now(pytz.timezone("Asia/Hong_Kong"))
             is_active_time = ((hk_now.hour >= 8) or (hk_now.hour == 0 and hk_now.minute <= 15))
             if is_active_time:
