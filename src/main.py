@@ -227,8 +227,8 @@ def fetch_feed_entries(source_label, rss_url):
             r = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False)
             feed = feedparser.parse(r.content)
                 # 🟢 [新增這行來檢查]
-                if "rssworkertopick" in rss_url:
-                    print(f"DEBUG TOPick 抓到的項目數: {len(feed.entries)}, 原始內容: {feed.entries[:2]}")
+            if "rssworkertopick" in rss_url:
+                print(f"DEBUG TOPick 抓到的項目數: {len(feed.entries)}, 原始內容: {feed.entries[:2]}")
 
             
             for entry in feed.entries[:15]:
