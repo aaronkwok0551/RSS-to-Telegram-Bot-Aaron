@@ -112,7 +112,7 @@ def save_sent_map(sent_map):
     except Exception as e:
         print(f"Save Error: {e}")
 
-SENT_MAP = load_sent_map()
+SENT_MAP = {}
 
 def ensure_chat_key(sent_map, chat_id):
     if str(chat_id) not in sent_map:
