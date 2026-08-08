@@ -681,7 +681,33 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
                         entries.append((title, clean_url(link), pub_time))
         except Exception as exc:
             print(f"商台 API 抓取錯誤：{exc}")
-
+    
+    elif source_label == "🟢 TOPick":
+        try:
+            response = HTTP.get(
+                rss_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                # 取得整個 JSON 的 updated_at 作為發佈時間的備用
+                fallback_time = data.get("updated_at", str(utc_timestamp()))
+                
+                # 遍歷 articles 陣列
+                for item in data.get("articles", [])[:15]:
+                    title = clean_title_simple(item.get("title", ""))
+                    link = item.get("url", "")
+                    
+                    # 由於你的 JSON 文章項目中沒有個別的時間，所以共用外層的更新時間
+                    pub_time = fallback_time
+                    
+                    link = clean_url(link)
+                    if title and link.startswith("http"):
+                        entries.append((title, link, pub_time))
+        except Exception as exc:
+            print(f"TOPick JSON 抓取錯誤：{exc}")
+            
     elif "newsapi1.now.com" in rss_url:
         try:
             # 必須使用手機版 Headers，否則會被 Now 伺服器擋下
