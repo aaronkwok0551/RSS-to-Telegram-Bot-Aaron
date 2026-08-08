@@ -682,7 +682,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
         except Exception as exc:
             print(f"商台 API 抓取錯誤：{exc}")
     
-    elif source_label == "🟢 TOPick":
+    elif source_label == "📜 TOPick":
         try:
             response = HTTP.get(
                 rss_url,
