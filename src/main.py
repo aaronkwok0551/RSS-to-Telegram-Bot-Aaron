@@ -844,6 +844,7 @@ def process_grouped_news() -> None:
         ("🍊 橙新聞即時", "https://politepaul.com/fd/KZGhqIiTnOCq.xml"),
         ("🍊 橙新聞專欄", "https://politepaul.com/fd/8fzf6zRfoy6H.xml"),
         ("📜 文匯即時", "https://politepaul.com/fd/C499xnjIBdRm.xml"),
+        ("📜 TOPick", "https://etnews.aaronkwok0551.workers.dev/"),
         ("🔵 點新聞即時", "https://politepaul.com/fd/xbfGvXWovqfk.xml"),
         ("🔵 點新聞評論", "https://politepaul.com/fd/59PndwU1mb82.xml"),
         ("🔵 文匯評論", "https://politepaul.com/fd/6oljXv2E75Pp.xml"),
