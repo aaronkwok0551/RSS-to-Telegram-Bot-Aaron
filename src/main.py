@@ -682,6 +682,39 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
         except Exception as exc:
             print(f"商台 API 抓取錯誤：{exc}")
 
+    elif "newsapi1.now.com" in rss_url:
+        try:
+            # 必須使用手機版 Headers，否則會被 Now 伺服器擋下
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "zh-HK,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Origin": "https://news.now.com",
+                "Referer": "https://news.now.com/",
+            }
+            response = HTTP.get(
+                rss_url,
+                headers=headers,
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                # 兼容不同結構，通常清單放在根目錄，或放在 "data" / "news" 下
+                items_list = data if isinstance(data, list) else data.get("news", data.get("data", []))
+                
+                for item in items_list[:15]:
+                    title = clean_title_simple(item.get("title", ""))
+                    # 確保能抓到 newsId，有些 API 節點叫 newsId 有些叫 id
+                    news_id = item.get("newsId", item.get("id", ""))
+                    link = f"https://news.now.com/home/local/player?newsId={news_id}" if news_id else item.get("link", "")
+                    pub_time = str(item.get("publishDate", item.get("publishTime", "")))
+                    
+                    link = clean_url(link)
+                    if title and link.startswith("http"):
+                        entries.append((title, link, pub_time))
+        except Exception as exc:
+            print(f"Now API 抓取錯誤：{exc}")
+
     else:
         try:
             response = HTTP.get(
@@ -796,13 +829,14 @@ def process_priority_news() -> None:
 
 
 def process_grouped_news() -> None:
-    """每 6 分鐘分段發送綜合新聞。TOPick 已移除。"""
+    """每 6 分鐘分段發送綜合新聞。"""
     group_sources = [
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
+        ("🐯 Now新聞 (官方)", "https://newsapi1.now.com/pccw-news-api/api/getNewsList?category=119&pageSize=200&pageNo=1"),
         ("🐯 TVB", "https://politepaul.com/fd/BTyYcpixBubP.xml"),
         ("📺 有線新聞", "https://politepaul.com/fd/7vsPHGi1tzC9.xml"),
         ("📜 信報", "https://politepaul.com/fd/tBTzOcfkQWzF.xml"),
