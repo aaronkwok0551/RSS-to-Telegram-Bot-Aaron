@@ -692,12 +692,13 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             
-            # 偽裝成標準桌面瀏覽器，避免被 Cloudflare Worker 擋下
+            # 🔴 透過 AllOrigins 代理洗白 IP，打破 Cloudflare 的追蹤
+            proxy_url = f"https://api.allorigins.win/raw?url={rss_url}"
             req = urllib.request.Request(
-                rss_url, 
+                proxy_url, 
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                    "Accept": "application/json, text/plain, */*"
+                    "Accept": "application/json"
                 }
             )
             
@@ -707,13 +708,11 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
                 
             fallback_time = str(data.get("updated_at", utc_timestamp()))
             raw_articles = data.get("articles", [])
-            print(f"🔍 [DEBUG] TOPick Worker 成功回傳 {len(raw_articles)} 篇文章")
+            print(f"🔍 [DEBUG] TOPick 解析出 {len(raw_articles)} 篇文章")
             
             for item in raw_articles[:15]:
                 title = clean_title_simple(item.get("title", ""))
                 link = item.get("url", "")
-                
-                # 使用文章 ID 或 URL 搭配時間作為唯一辨識
                 pub_time = fallback_time
                 
                 link = clean_url(link)
