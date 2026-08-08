@@ -684,7 +684,6 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
     
     elif source_label == "📜 TOPick":
         try:
-            # 改用 urllib 並停用 SSL 驗證，繞過 Cloudflare 針對 requests 的指紋阻擋
             import urllib.request
             import ssl
             import json
@@ -693,33 +692,36 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             
+            # 偽裝成標準桌面瀏覽器，避免被 Cloudflare Worker 擋下
             req = urllib.request.Request(
                 rss_url, 
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                    "Accept": "application/json"
+                    "Accept": "application/json, text/plain, */*"
                 }
             )
+            
             with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
                 content = response.read()
                 data = json.loads(content)
                 
-            # 取得整個 JSON 的 updated_at 作為發佈時間的備用
-            fallback_time = data.get("updated_at", str(utc_timestamp()))
+            fallback_time = str(data.get("updated_at", utc_timestamp()))
+            raw_articles = data.get("articles", [])
+            print(f"🔍 [DEBUG] TOPick Worker 成功回傳 {len(raw_articles)} 篇文章")
             
-            # 遍歷 articles 陣列
-            for item in data.get("articles", [])[:15]:
+            for item in raw_articles[:15]:
                 title = clean_title_simple(item.get("title", ""))
                 link = item.get("url", "")
                 
-                # 共用外層的更新時間
+                # 使用文章 ID 或 URL 搭配時間作為唯一辨識
                 pub_time = fallback_time
                 
                 link = clean_url(link)
                 if title and link.startswith("http"):
                     entries.append((title, link, pub_time))
+                    
         except Exception as exc:
-            print(f"TOPick JSON 抓取錯誤：{exc}")
+            print(f"❌ [ERROR] TOPick JSON 抓取失敗：{exc}")
             
     elif "newsapi1.now.com" in rss_url:
         try:
