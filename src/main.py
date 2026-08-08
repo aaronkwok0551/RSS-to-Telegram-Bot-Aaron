@@ -684,27 +684,40 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
     
     elif source_label == "📜 TOPick":
         try:
-            response = HTTP.get(
-                rss_url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
+            # 改用 urllib 並停用 SSL 驗證，繞過 Cloudflare 針對 requests 的指紋阻擋
+            import urllib.request
+            import ssl
+            import json
+            
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            req = urllib.request.Request(
+                rss_url, 
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                    "Accept": "application/json"
+                }
             )
-            if response.status_code == 200:
-                data = response.json()
-                # 取得整個 JSON 的 updated_at 作為發佈時間的備用
-                fallback_time = data.get("updated_at", str(utc_timestamp()))
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
+                content = response.read()
+                data = json.loads(content)
                 
-                # 遍歷 articles 陣列
-                for item in data.get("articles", [])[:15]:
-                    title = clean_title_simple(item.get("title", ""))
-                    link = item.get("url", "")
-                    
-                    # 由於你的 JSON 文章項目中沒有個別的時間，所以共用外層的更新時間
-                    pub_time = fallback_time
-                    
-                    link = clean_url(link)
-                    if title and link.startswith("http"):
-                        entries.append((title, link, pub_time))
+            # 取得整個 JSON 的 updated_at 作為發佈時間的備用
+            fallback_time = data.get("updated_at", str(utc_timestamp()))
+            
+            # 遍歷 articles 陣列
+            for item in data.get("articles", [])[:15]:
+                title = clean_title_simple(item.get("title", ""))
+                link = item.get("url", "")
+                
+                # 共用外層的更新時間
+                pub_time = fallback_time
+                
+                link = clean_url(link)
+                if title and link.startswith("http"):
+                    entries.append((title, link, pub_time))
         except Exception as exc:
             print(f"TOPick JSON 抓取錯誤：{exc}")
             
