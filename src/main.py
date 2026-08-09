@@ -682,45 +682,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
         except Exception as exc:
             print(f"商台 API 抓取錯誤：{exc}")
     
-    elif source_label == "📜 TOPick":
-        try:
-            import urllib.request
-            import ssl
-            import json
-            
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            
-            # 🔴 透過 AllOrigins 代理洗白 IP，打破 Cloudflare 的追蹤
-            proxy_url = f"https://api.allorigins.win/raw?url={rss_url}"
-            req = urllib.request.Request(
-                proxy_url, 
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                    "Accept": "application/json"
-                }
-            )
-            
-            with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
-                content = response.read()
-                data = json.loads(content)
-                
-            fallback_time = str(data.get("updated_at", utc_timestamp()))
-            raw_articles = data.get("articles", [])
-            print(f"🔍 [DEBUG] TOPick 解析出 {len(raw_articles)} 篇文章")
-            
-            for item in raw_articles[:15]:
-                title = clean_title_simple(item.get("title", ""))
-                link = item.get("url", "")
-                pub_time = fallback_time
-                
-                link = clean_url(link)
-                if title and link.startswith("http"):
-                    entries.append((title, link, pub_time))
-                    
-        except Exception as exc:
-            print(f"❌ [ERROR] TOPick JSON 抓取失敗：{exc}")
+
             
     elif "newsapi1.now.com" in rss_url:
         try:
