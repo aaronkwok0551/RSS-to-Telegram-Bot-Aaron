@@ -810,6 +810,11 @@ def process_priority_news() -> None:
                 lines = [f"<b>{label}（新消息）</b>"]
                 for title, link, pub_time in unsent:
                     lines.append(f'• <a href="{link}">{html_escape_text(title)}</a>')
+                                    
+                # 新增：如果是新聞稿，在多筆清單底部加上 GNMIS 捷徑
+                if label == "🏛 新聞稿":
+                    lines.append('\n👉 <a href="https://www.isdnews.gov.hk/subscriber/loginpage?lang=0">GNMIS按此</a>')
+                
                 full_message = "\n".join(lines)
                 if send_message_to(
                     chat_id,
@@ -824,6 +829,11 @@ def process_priority_news() -> None:
                     f'• <a href="{link}"><b>[{label}] '
                     f"{html_escape_text(title)}</b></a>"
                 )
+                
+                # 新增：如果是新聞稿，在單筆新聞底部加上 GNMIS 捷徑
+                if label == "🏛 新聞稿":
+                    message += '\n\n👉 <a href="https://www.isdnews.gov.hk/subscriber/loginpage?lang=0">GNMIS按此</a>'
+                    
                 if send_message_to(chat_id, message):
                     SENT_MAP[chat_id].add(get_unique_id(title, link, pub_time))
 
