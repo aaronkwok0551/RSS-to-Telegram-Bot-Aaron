@@ -657,7 +657,29 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
                         entries.append((title, clean_url(link), pub_time))
         except Exception as exc:
             print(f"HK01 API 抓取錯誤：{exc}")
+    elif source_label == "📰 HK01突發":
+        try:
+            response = HTTP.get(
+                rss_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15,
+            )
+            if response.status_code == 200:
+                for item in response.json().get("items", [])[:15]:
+                    info = item.get("data", {})
+                    title = clean_title_simple(info.get("title", ""))
+                    link = info.get("publishUrl", "")
+                    pub_time = str(
+                        info.get("publishTime", info.get("lastModified", ""))
+                    )
 
+                    if link and not link.startswith("http"):
+                        link = f"https://www.hk01.com{link}"
+                    if title and link:
+                        entries.append((title, clean_url(link), pub_time))
+        except Exception as exc:
+            print(f"HK01 突發API 抓取錯誤：{exc}")
+            
     elif source_label == "🔵 商台即時":
         try:
             response = HTTP.get(
@@ -845,6 +867,7 @@ def process_grouped_news() -> None:
     group_sources = [
         ("💡 On.cc", "https://politepaul.com/fd/cTsVfG4sKP6c.xml"),
         ("📰 HK01", "https://web-data.api.hk01.com/v2/feed/category/0"),
+        ("📰 HK01突發", "https://web-data.api.hk01.com/v2/feed/category/6?limit=20&bucketId=00000"),
         ("🐯 星島", "https://www.stheadline.com/rss"),
         ("📝 明報", "https://politepaul.com/fd/irsr7msXsno4.xml"),
         ("🐯 nowTV", "https://politepaul.com/fd/Lk7D530mgplN.xml"),
