@@ -955,16 +955,26 @@ def process_grouped_news() -> None:
                 all_new_ids.extend(
                     get_unique_id(item[0], item[1], item[2]) for item in to_send
                 )
-
         if sections:
-            chunk_size = 8
+            chunks = []
+            current_chunk = []
+            current_len = 0
+            max_chars = 3500  # 預留空間給標題，確保不超過 Telegram 4096 上限
+
+            for sec in sections:
+                if current_chunk and (current_len + len(sec) + 2 > max_chars):
+                    chunks.append("\n\n".join(current_chunk))
+                    current_chunk = [sec]
+                    current_len = len(sec)
+                else:
+                    current_chunk.append(sec)
+                    current_len += len(sec) + 2
+            if current_chunk:
+                chunks.append("\n\n".join(current_chunk))
+
             all_chunks_sent = True
-            for index in range(0, len(sections), chunk_size):
-                chunk = sections[index:index + chunk_size]
-                full_message = (
-                    f"<b>📰 綜合媒體快訊（{index // chunk_size + 1}）</b>\n\n"
-                    + "\n\n".join(chunk)
-                )
+            for index, chunk_text in enumerate(chunks, start=1):
+                full_message = f"<b>📰 綜合媒體快訊（{index}）</b>\n\n{chunk_text}"
                 if not send_message_to(chat_id, full_message, disable_preview=True):
                     all_chunks_sent = False
 
@@ -973,6 +983,24 @@ def process_grouped_news() -> None:
                 for unique_id in all_new_ids:
                     SENT_MAP[chat_id][unique_id] = None
                 save_sent_map(SENT_MAP)
+                
+#        if sections:
+#            chunk_size = 8
+#            all_chunks_sent = True
+#            for index in range(0, len(sections), chunk_size):
+#                chunk = sections[index:index + chunk_size]
+#                full_message = (
+#                    f"<b>📰 綜合媒體快訊（{index // chunk_size + 1}）</b>\n\n"
+#                    + "\n\n".join(chunk)
+#                )
+#                if not send_message_to(chat_id, full_message, disable_preview=True):
+#                    all_chunks_sent = False
+#
+#            # 只有全部分段均成功發送才標記為已讀，避免漏新聞。
+#            if all_chunks_sent:
+#                for unique_id in all_new_ids:
+#                    SENT_MAP[chat_id][unique_id] = None
+#                save_sent_map(SENT_MAP)
 
 
 # ================== 8. 主循環 ==================
