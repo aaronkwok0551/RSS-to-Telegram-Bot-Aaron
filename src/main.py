@@ -68,7 +68,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 STATE_FILE = os.path.join(DATA_DIR, "subscriber_state.json")
 SENT_FILE = os.path.join(DATA_DIR, "sent_urls_per_chat.json")
-MAX_SENT_CACHE = 500
+MAX_SENT_CACHE = 3000  # 提高快取上限，避免 20+ 媒體互相擠掉舊紀錄
 
 # Telegram polling 頻率；新聞抓取仍維持每 1 分鐘／6 分鐘。
 TELEGRAM_POLL_INTERVAL = 3
@@ -183,11 +183,12 @@ def save_state() -> None:
 
 
 def load_sent_map() -> dict:
+    """使用 dict 作為有序集合，確保淘汰快取時依時間順序移除最舊紀錄。"""
     try:
         if os.path.exists(SENT_FILE):
             with open(SENT_FILE, "r", encoding="utf-8") as file:
                 data = json.load(file)
-            return {str(key): set(value) for key, value in data.items()}
+            return {str(key): dict.fromkeys(value) for key, value in data.items()}
     except Exception as exc:
         print(f"⚠️ 讀取新聞發送紀錄失敗：{exc}")
     return {}
@@ -198,9 +199,10 @@ def save_sent_map(sent_map: dict) -> None:
     try:
         serializable = {}
         for key, values in sent_map.items():
-            value_list = list(values)
+            value_list = list(values.keys())
             if len(value_list) > MAX_SENT_CACHE:
                 value_list = value_list[-MAX_SENT_CACHE:]
+                sent_map[key] = dict.fromkeys(value_list)
             serializable[str(key)] = value_list
         with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(serializable, file, ensure_ascii=False)
@@ -215,7 +217,7 @@ def get_approved_chat_ids() -> list[str]:
 
 def ensure_chat_key(sent_map: dict, chat_id: str) -> None:
     if chat_id not in sent_map:
-        sent_map[chat_id] = set()
+        sent_map[chat_id] = {}
 
 
 BOT_STATE = load_state()
@@ -394,8 +396,8 @@ def approve_subscriber(chat_id: str) -> tuple[bool, str]:
     save_state()
 
     # 複製管理員現有的已發送紀錄，避免新訂閱者一獲批准便收到大量舊新聞。
-    admin_history = SENT_MAP.get(ADMIN_CHAT_ID, set())
-    SENT_MAP[chat_id] = set(admin_history)
+    admin_history = SENT_MAP.get(ADMIN_CHAT_ID, {})
+    SENT_MAP[chat_id] = dict(admin_history)
     save_sent_map(SENT_MAP)
 
     sent = send_message_to(
@@ -524,7 +526,14 @@ def handle_message_update(message: dict) -> None:
         return
 
     # 以下為管理員專用指令。
-    if command in ("/subscribers", "/pending", "/approve", "/reject", "/remove"):
+    if command in (
+        "/subscribers",
+        "/pending",
+        "/approve",
+        "/reject",
+        "/remove",
+        "/clear_history",
+    ):
         if not is_admin(sender_id):
             send_message_to(chat_id, "⛔ 你沒有管理員權限。")
             return
@@ -535,6 +544,15 @@ def handle_message_update(message: dict) -> None:
 
         if command == "/pending":
             send_message_to(chat_id, format_pending_list())
+            return
+
+        if command == "/clear_history":
+            SENT_MAP.clear()
+            save_sent_map(SENT_MAP)
+            send_message_to(
+                chat_id,
+                "🗑️ 已清空所有已發送新聞紀錄，下一輪抓取將重新發送最新新聞。",
+            )
             return
 
         if not args:
@@ -679,7 +697,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
                         entries.append((title, clean_url(link), pub_time))
         except Exception as exc:
             print(f"HK01 突發API 抓取錯誤：{exc}")
-            
+
     elif source_label == "🔵 商台即時":
         try:
             response = HTTP.get(
@@ -703,9 +721,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
                         entries.append((title, clean_url(link), pub_time))
         except Exception as exc:
             print(f"商台 API 抓取錯誤：{exc}")
-    
 
-            
     elif "newsapi1.now.com" in rss_url:
         try:
             # 必須使用手機版 Headers，否則會被 Now 伺服器擋下
@@ -724,15 +740,23 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             if response.status_code == 200:
                 data = response.json()
                 # 兼容不同結構，通常清單放在根目錄，或放在 "data" / "news" 下
-                items_list = data if isinstance(data, list) else data.get("news", data.get("data", []))
-                
+                items_list = (
+                    data
+                    if isinstance(data, list)
+                    else data.get("news", data.get("data", []))
+                )
+
                 for item in items_list[:15]:
                     title = clean_title_simple(item.get("title", ""))
                     # 確保能抓到 newsId，有些 API 節點叫 newsId 有些叫 id
                     news_id = item.get("newsId", item.get("id", ""))
-                    link = f"https://news.now.com/home/local/player?newsId={news_id}" if news_id else item.get("link", "")
+                    link = (
+                        f"https://news.now.com/home/local/player?newsId={news_id}"
+                        if news_id
+                        else item.get("link", "")
+                    )
                     pub_time = str(item.get("publishDate", item.get("publishTime", "")))
-                    
+
                     link = clean_url(link)
                     if title and link.startswith("http"):
                         entries.append((title, link, pub_time))
@@ -832,11 +856,11 @@ def process_priority_news() -> None:
                 lines = [f"<b>{label}（新消息）</b>"]
                 for title, link, pub_time in unsent:
                     lines.append(f'• <a href="{link}">{html_escape_text(title)}</a>')
-                                    
-                # 新增：如果是新聞稿，在多筆清單底部加上 GNMIS 捷徑
+
+                # 如果是新聞稿，在多筆清單底部加上 GNMIS 捷徑
                 if label == "🏛 新聞稿":
                     lines.append('\n👉 <a href="https://www.isdnews.gov.hk/subscriber/loginpage?lang=0">GNMIS按此</a>')
-                
+
                 full_message = "\n".join(lines)
                 if send_message_to(
                     chat_id,
@@ -844,20 +868,20 @@ def process_priority_news() -> None:
                     disable_preview=is_rthk,
                 ):
                     for title, link, pub_time in unsent:
-                        SENT_MAP[chat_id].add(get_unique_id(title, link, pub_time))
+                        SENT_MAP[chat_id][get_unique_id(title, link, pub_time)] = None
             else:
                 title, link, pub_time = unsent[0]
                 message = (
                     f'• <a href="{link}"><b>[{label}] '
                     f"{html_escape_text(title)}</b></a>"
                 )
-                
-                # 新增：如果是新聞稿，在單筆新聞底部加上 GNMIS 捷徑
+
+                # 如果是新聞稿，在單筆新聞底部加上 GNMIS 捷徑
                 if label == "🏛 新聞稿":
                     message += '\n\n👉 <a href="https://www.isdnews.gov.hk/subscriber/loginpage?lang=0">GNMIS按此</a>'
-                    
+
                 if send_message_to(chat_id, message):
-                    SENT_MAP[chat_id].add(get_unique_id(title, link, pub_time))
+                    SENT_MAP[chat_id][get_unique_id(title, link, pub_time)] = None
 
             save_sent_map(SENT_MAP)
 
@@ -922,13 +946,14 @@ def process_grouped_news() -> None:
                 if get_unique_id(item[0], item[1], item[2]) not in SENT_MAP[chat_id]
             ]
             if unsent:
+                to_send = unsent[:4]  # 只標記實際發送出去的前 4 條，避免漏發其餘新聞
                 lines = [f"<b>{label}</b>"] + [
                     f'• <a href="{item[1]}">{html_escape_text(item[0])}</a>'
-                    for item in unsent[:4]
+                    for item in to_send
                 ]
                 sections.append("\n".join(lines))
                 all_new_ids.extend(
-                    get_unique_id(item[0], item[1], item[2]) for item in unsent
+                    get_unique_id(item[0], item[1], item[2]) for item in to_send
                 )
 
         if sections:
@@ -946,7 +971,7 @@ def process_grouped_news() -> None:
             # 只有全部分段均成功發送才標記為已讀，避免漏新聞。
             if all_chunks_sent:
                 for unique_id in all_new_ids:
-                    SENT_MAP[chat_id].add(unique_id)
+                    SENT_MAP[chat_id][unique_id] = None
                 save_sent_map(SENT_MAP)
 
 
