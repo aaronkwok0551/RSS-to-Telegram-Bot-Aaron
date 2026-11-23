@@ -800,7 +800,8 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             response = HTTP.get(
                 rss_url,
                 headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
+                timeout=30,
+                Verify=False,
             )
             if response.status_code == 200:
                 for item in response.json().get("items", [])[:15]:
@@ -823,7 +824,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             response = HTTP.get(
                 rss_url,
                 headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
+                timeout=30,
             )
             if response.status_code == 200:
                 content_list = response.json().get("response", {}).get("content", [])
@@ -854,7 +855,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             response = HTTP.get(
                 rss_url,
                 headers=headers,
-                timeout=15,
+                timeout=30,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -885,7 +886,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
             response = HTTP.get(
                 rss_url,
                 headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15,
+                timeout=30,
                 verify=False,
             )
             feed = feedparser.parse(response.content)
@@ -926,7 +927,7 @@ def fetch_feed_entries(source_label: str, rss_url: str) -> list[tuple[str, str, 
 
 
 def fetch_sources_concurrently(
-    sources: list[tuple[str, str]], max_workers: int = 10
+    sources: list[tuple[str, str]], max_workers: int = 4
 ) -> list[tuple[str, list[tuple[str, str, str]]]]:
     """多線程同時抓取所有來源，並維持原本的媒體順序。"""
     results_map = {}
@@ -1095,7 +1096,7 @@ def process_grouped_news() -> None:
         ),
     ]
 
-    fetched_list = fetch_sources_concurrently(group_sources, max_workers=10)
+    fetched_list = fetch_sources_concurrently(group_sources, max_workers=4)
     fetched = {}
 
     for label, items in fetched_list:
